@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
 try:
     from atlassian import Jira
+    jiraImported = False
 except ImportError:
     jiraImported = False
     if not TYPE_CHECKING:
