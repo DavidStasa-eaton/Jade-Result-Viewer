@@ -23,7 +23,6 @@ class MainUI(Toplevel):
 
         MainUI.instance = self
 
-        
         self.ioFrame = IOFrame(self)
         self.ioFrame.pack(side="left", anchor='n')
         self.ioFrame.fileSelectedEvents.append(self.Handle_FileSelected)
