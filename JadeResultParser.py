@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 import os
-from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog
+from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image
 import json
 from typing import Dict, List, Tuple, Any, Callable
 import re
@@ -10,16 +10,21 @@ from queue import Queue
 import threading
 import time
 
-from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame
+from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseBool, Button_WorkStart
 
 import JiraAgent as JiraAgent
 
 configPath = "JadeResultParserConfig.txt"
 
+Button.WorkStart = Button_WorkStart
+Button.Parsebool = Button_ParseBool
+
 class MainUI(Toplevel):
     instance = None
     def __init__(self, tk:Tk, *args, **kwargs):
         Toplevel.__init__(self, tk, *args, **kwargs)
+
+        IssueFrame.PopulateImages()
 
         MainUI.instance = self
 
@@ -27,13 +32,18 @@ class MainUI(Toplevel):
         self.ioFrame.pack(side="left", anchor='n')
         self.ioFrame.fileSelectedEvents.append(self.Handle_FileSelected)
 
-        self.jiraFrame = JiraFrame(self)
+        self.parentJiraFrame = Frame(self)
+        self.jiraFrame = JiraFrame(self.parentJiraFrame)
+        self.bugFrame = CreateBugFrame(self.parentJiraFrame)
 
         self.resultFrame = ResultViewerFrame(self)
         self.resultFrame.pack(side="left", fill="both", expand=True)
 
+        self.parentJiraFrame.pack(side="left", fill="both", expand=True)
+
         if JiraAgent.jiraImported:
-            self.jiraFrame.pack(side="left", fill="both")
+            self.jiraFrame.pack(side="top", fill="both", expand=True)
+            #self.bugFrame.pack(side="top", fill="both")
             self.resultFrame.DoneLoadingEvents.append(self.jiraFrame.Callback_ResultFileLoaded)
 
 
@@ -73,6 +83,7 @@ class ResultViewerFrame(Frame):
         Frame.__init__(self, parent, *args, **kwargs)
 
         self.selectedResultFile:ResultFile = None
+        self.inputFilePath = ""
         self.fileLines:List[str] = []
 
         self.tableDict:Dict[int, TableResult] = {}
@@ -137,7 +148,7 @@ class ResultViewerFrame(Frame):
 
         ##############################################################################################################
 
-        self.DoneLoadingEvents:List[Callable[[List[TableResult]], None]] = []
+        self.DoneLoadingEvents:List[Callable[[str, str, List[TableResult]], None]] = []
 
     def PopulateTableFrames(self):
         for child in self.tablesScrollFrame.packFrame.winfo_children():
@@ -192,12 +203,11 @@ class ResultViewerFrame(Frame):
                 if re.match(r"^#Table:\s(?!.*::: )", line): # the "#Table:" match will be found twice. Once for header. once for footer. The non capture group ":::" only appears in footer
                     self.tableDict[index] = TableResult(line, index, self.fileLines[index:])
                     lastTableFound = self.tableDict[index]
+                elif line.startswith("#Input File :   "):
+                    self.inputFilePath = line[16:].strip()
 
                 self.InsertLineWithFormmating(line, lastTableFound)
                 #self.text.insert(END, line)
-
-                
-
                 index += 1
 
         self.PopulateSummary()
@@ -210,7 +220,7 @@ class ResultViewerFrame(Frame):
         self.yScrollBar.config(command=self.text.yview)
 
         for func in self.DoneLoadingEvents:
-            func(self.tableDict.values())
+            func(self.inputFilePath, self.selectedResultFile.absolutePath, self.tableDict.values())
 
     def InsertLineWithFormmating(self, line:str, tableResult:TableResult):
         self.text.insert(END, line)
@@ -268,6 +278,8 @@ class IOFrame(Frame):
 
         self.botFrame = Frame(self)
         self.botFrame.pack(side="top", fill="x")
+
+        
 
         self.resultDirVar = StringVar()
         self.resultDirEntry = Entry(self.topFrame, textvariable=self.resultDirVar)
@@ -399,6 +411,8 @@ class JiraFrame(Frame):
         self.userFrame.pack(side="top", fill="x")
         self.userFrame.columnconfigure(1, weight=1)
 
+        self.inputFilePath:str = ""
+
         Label(self.userFrame, text="User").grid(
             row=0, column=0, sticky="wens"
         )
@@ -439,15 +453,18 @@ class JiraFrame(Frame):
 
         return {
             "key": key,
+            "id": issueDict["id"],
             "issueDict": issueDict
         }
 
-    def Callback_ResultFileLoaded(self, results:List[TableResult]):
+    def Callback_ResultFileLoaded(self, inputFilePath:str, resultFilePath:str, results:List[TableResult]):
         """Subscribed from ResultViewerer frame. Will be called when a new result file is loaded. Will ascychroniously load each jira issue found in the result files. 
 
         Args:
             results (List[TableResult]): List of all the TableResults parsed in the results file
         """
+        self.inputFilePath = inputFilePath
+        self.resultFilePath = resultFilePath
         for child in self.tablesScrollFrame.packFrame.winfo_children():
             child:Frame
             child.pack_forget()
@@ -469,17 +486,17 @@ class JiraFrame(Frame):
         if issueDict == {}:
             return
 
-        temp = IssueFrame(self.tablesScrollFrame.packFrame, self, key, issueDict, width=485, height=60)
+        temp = IssueFrame(self.tablesScrollFrame.packFrame, self, key, issueDict, self.inputFilePath, self.resultFilePath,
+                          width=IssueFrame.RequiredWidth, height=IssueFrame.RequiredHeight)
         temp.pack(side="top", fill="both", expand=True, pady=3, padx=3)
 
         self.tablesScrollFrame.ConfigureCanvas(overrideWidth=500)
 
     def Click_TestFunc(self):
-        projs = JiraAgent.GetJiraProjects(self.jira)
-
-        for proj in projs:
-            #jString = json.loads(proj)
-            print(proj["name"])
+        #
+        # TEST FUNCTION - CAN BE FREELY OVERWRITTEN
+        #
+        print(JiraAgent.WriteIssueToFile(self.jira, "DIGTOOLS-56"))
 
     def Handle_UserNameChanged(self, *args):
         JiraAgent.userName = self.userVar.get()
@@ -713,31 +730,249 @@ class TableFrame(Frame):
         self.clickFunc(self.tableResult)
 
 class IssueFrame(Frame):
-    def __init__(self, parent:Frame, jiraFrame:JiraFrame, issueKey:str, issueJson:Dict[str, Any], *args, **kwargs):
+    RequiredHeight = 100
+    RequiredWidth = 485
+    
+    # Popluate with static method IssueFrame.PopulateImages()
+    taskImage = None
+    bugImage = None
+    epicImage = None
+    storyImage = None
+    unknownImage = None
+
+    errorImage = None
+    successImage = None
+
+    def __init__(self, parent:Frame, jiraFrame:JiraFrame, issueKey:str, issueJson:Dict[str, Any], inputFilePath:str, outputFilePath:str, *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
         self.jiraFrame = jiraFrame
         self.key = issueKey
+        self.id = issueJson["id"]
         self.issueJson = issueJson
+        self.inputFilePath = inputFilePath
+        self.outputFilePath = outputFilePath
+
+        self.issueType = self.issueJson["issuetype"]["name"]
+        self.status = self.issueJson["status"]["name"]
+        self.projectDict = self.issueJson["project"]
+        self.LoadImageBasedOnType()
+
+        self.typeCanvas = Canvas(self, height=20, width=20)
+        self.typeCanvas.create_image(10,10, image=self.image)
+        self.typeCanvas.place(x=3, y=7, height=20, width=20)
+
+        self.transitionCombo = ttk.Combobox(self, values=[])
+        self.transitionCombo.place(x=125, y=6, width=100)
+        self.transitionCombo.bind("<<ComboboxSelected>>", self.Handle_ChangeStatus)
+
+        self.statusChangeCanvas = Canvas(self, height=20, width=20)
+        self.statusCreatedImage = None
+        self.statusChangeCanvas.place(x=228, y=7, height=20, width=20)
 
         self.keyLabel = Label(self, text=self.key, relief="ridge", bd=2)
-        self.keyLabel.place(x=3, y=6, width=100)
-
-        self.summaryLabel = Label(self, text=self.issueJson["summary"], relief="sunken", bd=2, bg="grey75")
-        self.summaryLabel.place(x=3, y=35, width=480)
+        self.keyLabel.place(x=23, y=6, width=100)
 
         self.uploadButton = Button(self, text="Upload", command=self.Click_UploadButton)
         self.uploadButton.place(x=400, y=3, width=75)
 
-    def Click_UploadButton(self):
+        self.summaryLabel = Label(self, text=self.issueJson["summary"], relief="sunken", bd=2, bg="grey75")
+        self.summaryLabel.place(x=3, y=35, width=480)
+
+        Label(self, text="Reporter:").place(
+            x=3, y=60, width=50)
+        self.reporterLabel = Label(self, text=self.issueJson["reporter"]["displayName"])
+        self.reporterLabel.place(x=55, y=60)
+
+        Label(self, text="Assignee:").place(
+            x=250, y=60, width=50)
+        
+        assignee = self.issueJson["assignee"]
+        assignee = "No One" if assignee is None else assignee["displayName"]
+        self.reporterLabel = Label(self, text=assignee)
+        self.reporterLabel.place(x=300, y=60)
+
+        self.createBugButton = Button(self, text="Log Bug", command=self.Toggle_BugFrame)
+        self.createBugButton.place(x=30, y=80, width=75)
+
+        self.transitionDict:Dict[str, int] = {}
+        self.GetTransitions()
+
+    def Toggle_BugFrame(self):
+        MainUI.instance.bugFrame.UpdatedSelectedIssue(self)
+        if CreateBugFrame.isVisible:
+            MainUI.instance.bugFrame.pack_forget()
+        else:
+            MainUI.instance.bugFrame.pack(side="top", fill="x")
+
+        CreateBugFrame.isVisible = not CreateBugFrame.isVisible
+        
+    def GetParentInfo(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "key": self.key
+        }
+
+    def LoadImageBasedOnType(self):
+        if self.issueType == "Task":
+            self.image = IssueFrame.taskImage
+        elif self.issueType == "Bug":
+            self.image = IssueFrame.bugImage
+        elif self.issueType == "Story":
+            self.image = IssueFrame.storyImage
+        elif self.issueType == "Epic":
+            self.image = IssueFrame.epicImage
+        else:
+            self.image = IssueFrame.unknownImage
+
+    @staticmethod
+    def PopulateImages():
+        '''Must be called after creation'''
+        IssueFrame.taskImage = PhotoImage(file=r"Resources\task.png")
+        IssueFrame.bugImage = PhotoImage(file=r"Resources\bug.png")
+        IssueFrame.epicImage = PhotoImage(file=r"Resources\epic.png")
+        IssueFrame.storyImage = PhotoImage(file=r"Resources\story.png")
+        IssueFrame.unknownImage = PhotoImage(file=r"Resources\unknown.png")
+
+        IssueFrame.errorImage = PhotoImage(file=r"Resources\error.png")
+        IssueFrame.successImage = PhotoImage(file=r"Resources\success.png")
+
+    def Handle_ChangeStatus(self, event=None):
+        self.transitionCombo.config(state="disabled")
+        value = self.transitionCombo.get()
+        if self.statusCreatedImage is not None:
+            self.statusChangeCanvas.delete(self.statusCreatedImage)
         self.jiraFrame.AsyncFunctionCall(
-        JiraAgent.AttachFile, None,
+            JiraAgent.SetIssueStatus, 
+            self.Callback_ChangeStatus,
             MainUI.instance.jiraFrame.jira, 
             self.key, 
-            MainUI.instance.resultFrame.selectedResultFile.absolutePath
+            value
+        )
+
+    def Callback_ChangeStatus(self, returnObject):
+        self.transitionCombo.config(state="normal")
+        
+
+        if returnObject[0]:
+            temp = IssueFrame.successImage
+        else:
+            temp = IssueFrame.errorImage
+
+        self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=temp)
+
+    def GetTransitions(self):
+        self.jiraFrame.AsyncFunctionCall(
+            JiraAgent.GetIssueTransitions, 
+            self.Callback_GetTransitions,
+            MainUI.instance.jiraFrame.jira, 
+            self.key, 
+        )
+
+    def Callback_GetTransitions(self, transTuple:Tuple[bool, List[Dict[str, Any]]]):
+        if not transTuple[0]:
+
+            return
+        
+        self.transitionDict = {}
+        selectIndex = -1
+        for tDict in transTuple[1]:
+            self.transitionDict[tDict["name"]] = tDict["id"]
+
+        self.transitionCombo.config(values=list(self.transitionDict.keys()))
+        self.transitionCombo.set(self.status)
+
+    def Click_UploadButton(self):
+        self.uploadButton.WorkStart()
+        self.jiraFrame.AsyncFunctionCall(
+            JiraAgent.AttachFile, 
+            None,
+            MainUI.instance.jiraFrame.jira, 
+            self.key, 
+            self.outputFilePath
+        )
+
+        self.jiraFrame.AsyncFunctionCall(
+            JiraAgent.AttachFile, 
+            self.Callback_UpdateButton,
+            MainUI.instance.jiraFrame.jira, 
+            self.key, 
+            self.inputFilePath
         )
         #print(MainUI.instance.resultFrame.selectedResultFile.absolutePath)
 
+    def Callback_UpdateButton(self, returnObject):
+        self.uploadButton.ParseBool(type(returnObject[0]) != tuple)
+
+class CreateBugFrame(Frame):
+    isVisible:bool = False
+    def __init__(self, parent, *args, **kwargs):
+        Frame.__init__(self, parent, *args, **kwargs)
+        self.issueFrame:IssueFrame = None
+
+        self.columnconfigure(2, weight=1)
+
+        Label(self, text="Title:").grid(
+            row=0, column=0, **gridKwargs
+        )
+        Label(self, text="Summary:").grid(
+            row=1, column=0, **gridKwargs
+        )
+        Label(self, text="").grid(
+            row=2, column=0, **gridKwargs
+        ) # spacer
+        Label(self, text="Priority:").grid(
+            row=3, column=0, **gridKwargs
+        )
+
+        self.titleEntry = Entry(self)
+        self.titleEntry.grid(row=0, column=1, columnspan=3, sticky="wens", padx=5, pady=1)
+
+        self.summaryText = Text(self, height=4, width=1)
+        self.summaryText.grid(row=1, column=1, columnspan=3, sticky="wens", padx=5, pady=1)
+
+        self.priorityCombo = ttk.Combobox(self, values=["High", "Medium", "Low"])
+        self.priorityCombo.grid(row=3, column=1)
+        self.priorityCombo.set("High")
+
+        self.createBugButton = Button(self, text="Create Bug", command=self.Click_CreateBugButton)
+        self.createBugButton.grid(row=4, column=0, columnspan=4)
+
+    def UpdatedSelectedIssue(self, issueFrame:IssueFrame):
+        self.issueFrame = issueFrame
+
+    def Click_CreateBugButton(self):
+        issueLinkData = {
+            "type": {"name": "Depends"},
+            "inwardIssue": self.issueFrame.GetParentInfo()
+        }
+
+        projectKey = self.issueFrame.projectDict["key"]
+
+        fields = {
+            "project": {"key": projectKey},
+            "issuetype": {"name": "Bug"},
+            "summary": self.titleEntry.get(),
+            "priority": {"name": self.priorityCombo.get()},
+            "description": self.summaryText.get("1.0", END),
+        }
+
+        [success, bugInfo] = JiraAgent.CreateBug(self.issueFrame.jiraFrame.jira, fields)
+
+        if not success:
+            print("\n\n\Failed to create bug\n\n")
+            return
+        
+        createBugKey = bugInfo["key"]
+
+        [success, linkInfo] = JiraAgent.LinkIssues(self.issueFrame.jiraFrame.jira, createBugKey, self.issueFrame.key)
+
+        JiraAgent.AttachFile(self.issueFrame.jiraFrame.jira, createBugKey, self.issueFrame.inputFilePath)
+        JiraAgent.AttachFile(self.issueFrame.jiraFrame.jira, createBugKey, self.issueFrame.outputFilePath)
+
+
+
 def MainExitCall():
+
     mw.SaveElements()
     tk.destroy()
 
