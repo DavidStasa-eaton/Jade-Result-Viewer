@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 import os
-from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image
+from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu
 import json
 from typing import Dict, List, Tuple, Any, Callable
 import re
@@ -23,6 +23,8 @@ class MainUI(Toplevel):
     instance = None
     def __init__(self, tk:Tk, *args, **kwargs):
         Toplevel.__init__(self, tk, *args, **kwargs)
+
+        self.title("Result Viewer and Jira Uploader")
 
         IssueFrame.PopulateImages()
 
@@ -752,6 +754,10 @@ class IssueFrame(Frame):
         self.inputFilePath = inputFilePath
         self.outputFilePath = outputFilePath
 
+        self.CreateRightClickMenu()
+
+        self.bind("<Button-3>", self.Handle_RightClick)
+
         self.issueType = self.issueJson["issuetype"]["name"]
         self.status = self.issueJson["status"]["name"]
         self.projectDict = self.issueJson["project"]
@@ -784,24 +790,26 @@ class IssueFrame(Frame):
         self.reporterLabel.place(x=55, y=60)
 
         Label(self, text="Assignee:").place(
-            x=250, y=60, width=50)
+            x=3, y=80, width=50)
         
         assignee = self.issueJson["assignee"]
         assignee = "No One" if assignee is None else assignee["displayName"]
-        self.reporterLabel = Label(self, text=assignee)
-        self.reporterLabel.place(x=300, y=60)
+        self.assigneeLabel = Label(self, text=assignee)
+        self.assigneeLabel.place(x=55, y=80)
 
         self.createBugButton = Button(self, text="Log Bug", command=self.Toggle_BugFrame)
-        self.createBugButton.place(x=30, y=80, width=75)
+        self.createBugButton.place(x=300, y=60, width=75)
 
         self.transitionDict:Dict[str, int] = {}
         self.GetTransitions()
 
     def Toggle_BugFrame(self):
-        MainUI.instance.bugFrame.UpdatedSelectedIssue(self)
-        if CreateBugFrame.isVisible:
-            MainUI.instance.bugFrame.pack_forget()
+        if CreateBugFrame.isVisible and MainUI.instance.bugFrame.activeKey == self.key:
+            MainUI.instance.bugFrame.CancelBug()
+        elif CreateBugFrame.isVisible and MainUI.instance.bugFrame.activeKey != self.key:
+            MainUI.instance.bugFrame.UpdatedSelectedIssue(self)
         else:
+            MainUI.instance.bugFrame.UpdatedSelectedIssue(self)
             MainUI.instance.bugFrame.pack(side="top", fill="x")
 
         CreateBugFrame.isVisible = not CreateBugFrame.isVisible
@@ -811,6 +819,25 @@ class IssueFrame(Frame):
             "id": self.id,
             "key": self.key
         }
+    
+    def Handle_RightClick(self, event):
+        try:
+            self.rightClickMenu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.rightClickMenu.grab_release()
+
+    def CreateRightClickMenu(self):
+        self.rightClickMenu = Menu(self, tearoff=0)
+
+        self.rightClickMenu.add_command(label="Save Info", command=self.MenuClick_SaveInfo)
+
+    def MenuClick_SaveInfo(self, event=None):
+        self.jiraFrame.AsyncFunctionCall(
+            JiraAgent.WriteIssueToFile, 
+            None,
+            MainUI.instance.jiraFrame.jira, 
+            self.key
+        )
 
     def LoadImageBasedOnType(self):
         if self.issueType == "Task":
@@ -908,37 +935,48 @@ class CreateBugFrame(Frame):
     def __init__(self, parent, *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
         self.issueFrame:IssueFrame = None
+        self.activeKey = ""
 
         self.columnconfigure(2, weight=1)
 
         Label(self, text="Title:").grid(
-            row=0, column=0, **gridKwargs
-        )
-        Label(self, text="Summary:").grid(
             row=1, column=0, **gridKwargs
         )
-        Label(self, text="").grid(
+        Label(self, text="Summary:").grid(
             row=2, column=0, **gridKwargs
+        )
+        Label(self, text="").grid(
+            row=3, column=0, **gridKwargs
         ) # spacer
         Label(self, text="Priority:").grid(
-            row=3, column=0, **gridKwargs
+            row=4, column=0, **gridKwargs
         )
 
+        self.attachedIssueLabel = Label(self, text="-", relief="sunken", bd=2, bg="grey75")
+        self.attachedIssueLabel.grid(row=0, column=0, columnspan=4, sticky="wens", padx=5, pady=1)
+
         self.titleEntry = Entry(self)
-        self.titleEntry.grid(row=0, column=1, columnspan=3, sticky="wens", padx=5, pady=1)
+        self.titleEntry.grid(row=1, column=1, columnspan=3, sticky="wens", padx=5, pady=1)
 
         self.summaryText = Text(self, height=4, width=1)
-        self.summaryText.grid(row=1, column=1, columnspan=3, sticky="wens", padx=5, pady=1)
+        self.summaryText.grid(row=2, column=1, columnspan=3, sticky="wens", padx=5, pady=1)
 
         self.priorityCombo = ttk.Combobox(self, values=["High", "Medium", "Low"])
-        self.priorityCombo.grid(row=3, column=1)
+        self.priorityCombo.grid(row=4, column=1)
         self.priorityCombo.set("High")
 
         self.createBugButton = Button(self, text="Create Bug", command=self.Click_CreateBugButton)
-        self.createBugButton.grid(row=4, column=0, columnspan=4)
+        self.createBugButton.grid(row=5, column=0, columnspan=4)
 
     def UpdatedSelectedIssue(self, issueFrame:IssueFrame):
         self.issueFrame = issueFrame
+        self.activeKey = self.issueFrame.key
+        self.attachedIssueLabel.config(text=f"Log bug for: {self.activeKey}")
+
+    def CancelBug(self):
+        self.issueFrame = None
+        self.activeKey = ""
+        self.pack_forget()
 
     def Click_CreateBugButton(self):
         issueLinkData = {

@@ -122,6 +122,7 @@ def SetIssueStatus(jira:Jira, key:str, newStatus:int) -> Tuple[bool, List[Dict[s
 
 
 if __name__ == "__main__":
+    print("Don't run this")
     #issueKey = "TUPCTOOL-3"
     #WriteIssueToFile(j, issueKey)
     #issueKey = "DIGTOOLS-50"
@@ -129,7 +130,7 @@ if __name__ == "__main__":
 
     #CreateBug(j, "test bug", "test description")
 
-    AttachFile(j, "TUPCTOOL-32", "JiraIssue_DIGTOOLS-50.txt")
+    #AttachFile(j, "TUPCTOOL-32", "JiraIssue_DIGTOOLS-50.txt")
 
     #j.issue_add_comment(issueKey, "Comment from test")
 
