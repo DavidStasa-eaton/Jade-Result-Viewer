@@ -572,6 +572,20 @@ class ScrollFrame(Frame):
 
     def PassFunc(self, event=None): pass
 
+    def ClearControls_Grid(self):
+        for child in self.packFrame.winfo_children():
+            child:Frame
+            child.grid_forget()
+            child.destroy()
+        self.ConfigureCanvas()
+        
+    def ClearControls_Pack(self):
+        for child in self.packFrame.winfo_children():
+            child:Frame
+            child.pack_forget()
+            child.destroy()
+        self.ConfigureCanvas()
+
     def ConfigureCanvas(self, event=None, overrideWidth:int=-1):
         
         '''

@@ -6,12 +6,14 @@ from requests import exceptions as httpExceptions
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
 try:
-    from atlassian import Jira
+    from atlassian import Jira, Xray
     jiraImported = True
 except ImportError:
     jiraImported = False
     if not TYPE_CHECKING:
         Jira = None
+
+import atlassian
 
 TOKEN = ""
 
@@ -26,14 +28,21 @@ def GetJiraInstance() -> Jira:
             password=TOKEN, verify_ssl=False)
     return j
 
-def WriteIssueToFile(jira:Jira, issueKey:str):
+def GetXrayInstance() -> Jira:
+    jiraOptions = {"server": serverAddress, "verify": True}
+    x = Xray(serverAddress,
+            username=userName,
+            password=TOKEN, verify_ssl=False)
+    return x
+
+def WriteIssueToFile(jira:Jira, issueKey:str, filterCustomFields:bool=True):
     issue = jira.issue(issueKey)
 
     fields = issue["fields"]
     copyDict = {}
     for key, value in fields.items():
         key:str
-        if not key.startswith("customfield"):
+        if not key.startswith("customfield") or not filterCustomFields:
             copyDict[key] = value
 
     issue["fields"] = copyDict
@@ -60,6 +69,16 @@ def LinkIssues(jira:Jira, childIssue:str, parentIssue:str) -> Tuple[bool, Dict[s
 def CreateBug(jira:Jira, fields:Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
     try:
         return (True, jira.create_issue(fields=fields))
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
+    
+def GetIssueTree(xray:Xray, key:str) -> Tuple[bool, Dict[str, Any]]:
+    try:
+        return xray.get_test_runs([key])
     except httpExceptions.HTTPError as e:
         return (False, e.args)
     except httpExceptions.ConnectionError as e:
