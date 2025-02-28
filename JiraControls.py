@@ -148,7 +148,7 @@ class JiraFrame(Frame):
 
         xray = JiraAgent.GetXrayInstance()
 
-        print(JiraAgent.GetIssueTree(xray, "MT-1618"))
+        print(JiraAgent.TestFunc(xray, "MT-1618"))
 
     def Handle_UserNameChanged(self, *args):
         JiraAgent.userName = self.userVar.get()

@@ -2,6 +2,8 @@
 import json
 import os
 from requests import exceptions as httpExceptions
+import requests
+from JWT_Handler import GetToken as GetJWT
 
 from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
@@ -42,7 +44,9 @@ def WriteIssueToFile(jira:Jira, issueKey:str, filterCustomFields:bool=True):
     copyDict = {}
     for key, value in fields.items():
         key:str
-        if not key.startswith("customfield") or not filterCustomFields:
+        if not key.startswith("customfield"):
+            copyDict[key] = value
+        elif key.startswith("customfield") and value is not None:
             copyDict[key] = value
 
     issue["fields"] = copyDict
@@ -76,15 +80,44 @@ def CreateBug(jira:Jira, fields:Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
     except httpExceptions.ConnectTimeout as e:
         return (False, e.args)
     
-def GetIssueTree(xray:Xray, key:str) -> Tuple[bool, Dict[str, Any]]:
+def TestFunc(xray:Xray, key:str) -> Tuple[bool, Dict[str, Any]]:
+    token = "ATATT3xFfGF0VPJFulHvFMvk-Z7tx9XTJvk8qxyPP8zok2jC7_dwaPjI3uMlYdbOwfSdk7PgYuAmKJ38dGecEcOIbBCgxPMJ3W16DUsIa1S5ERfcbsWnxrsO1xIhSCvzZzWdWCNc9AzXddNus8-QzJiZOr8AVketJGMXFJnCKHRmFcRhPc1bsPo=016B99B7"
+    cycle_id = "ade7d934-a6b4-4128-92e7-a7a65112625"
+    issueKey = "MT-1618"
+    version_id = -1
+    project_id = "12661"
+    #"https://eaton-corp.atlassian.net/projects/rest/zapi/latest/teststep/MT-1618"
+    accessToken = "NDk0MzY5ZjctNzBkZi0zYzQwLWJjYTctMDY5YjY3Y2Y4ZWYxIDVhMjgzYjE0MTI5ZWFmNzUxZTNkYjI1ZSBVU0VSX0RFRkFVTFRfTkFNRQ"
+    url = f"https://eaton-corp.atlassian.net/jira/projects/rest/api/2.0/teststep/8175269?projectId=12661"
+    #url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/api/2.0/teststep/8175269?12661={GetJWT()}"
+    url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/api/1.0/projectID=12661"
+    url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/zapi/latest/execution?projectId={project_id}&versionId={version_id}&cycleId={cycle_id}"
+    url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/api/1.0/cycle/cycleId?projectId={project_id}&versionId={version_id}"
+    url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/api/1.0/cycle/{cycle_id}?projectId={project_id}&versionId={version_id}"
+    #url = f"{serverAddress}jira/rest/zapi/latest/cycle/cycleID{cycle_id}&versionId=-1&projectId:{project_id}"
+    #url = f"https://prod-api.zephyr4jiracloud.com/v2/rest/zapi/latest/cycle/cycleID{cycle_id}&versionId=-1&projectId:{project_id}"
+    
+    headers = {
+        "zapiAccessKey": "NDk0MzY5ZjctNzBkZi0zYzQwLWJjYTctMDY5YjY3Y2Y4ZWYxIDVhMjgzYjE0MTI5ZWFmNzUxZTNkYjI1ZSBVU0VSX0RFRkFVTFRfTkFNRQ",
+        "Authorization": f"JWT {GetJWT()}",
+        "Content-Type": "application/json"
+    }
     try:
-        return xray.get_test_runs([key])
-    except httpExceptions.HTTPError as e:
-        return (False, e.args)
-    except httpExceptions.ConnectionError as e:
-        return (False, e.args)
-    except httpExceptions.ConnectTimeout as e:
-        return (False, e.args)
+        response = requests.get(url, headers=headers, verify=False)
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+        test_case_data = response.json()
+        print(json.dumps(test_case_data, indent=2))
+    except requests.exceptions.RequestException as e:
+        print(f"Error during API request: {e}")
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON response: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+    print("\n\n")
+    print(url)
+    print("\n\n")
+    
 
 def AttachFile(jira:Jira, issueKey:str, pathToAttachment:str):
     if not os.path.exists(pathToAttachment):
