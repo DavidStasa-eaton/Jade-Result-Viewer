@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu
+from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu, messagebox
 import json
 from typing import Dict, List, Tuple, Any, Callable, TYPE_CHECKING
 import re
@@ -13,6 +13,7 @@ from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseB
 from AsyncHandler import AsyncHandler
 from JiraItem import JiraItem as Item
 from JiraItem import JiraType
+from JiraItem import ItemFrame as ParentItemFrame
 from JiraControls import IssueFrame
 
 import JiraAgent as JiraAgent
@@ -54,6 +55,9 @@ class ProjectViewerFrame(Frame):
         self.inspector = ProjectInspecterFrame(self, None, self.handler, width=500, height=500, bg="cyan")
         self.inspector.pack(side='left', fill="both", expand=True, **packKwargs)
 
+        self.childInspecter = CycleInspectorFrame(self, self.handler, self.jira)
+        self.childInspecter.pack(side="left", fill="both", expand=True, **packKwargs)
+
         #self.testButton = Button(self, text="Test", command=self.Click_TestButton)
         #self.testButton.pack()
 
@@ -69,6 +73,7 @@ class ProjectViewerFrame(Frame):
     def Handle_ProjectSelected(self, var, index=-1, event=None):
         key = self.selectedProjectVar.get()
         self.inspector.ChangeLoadedProject(key, self.projectDict[key])
+        CycleInspectorFrame.selectedProjectKey = key
 
     def Click_TestButton(self):
         self.handler.AsyncWork(self.TestFunc, self.TestCallback)
@@ -115,8 +120,6 @@ class ProjectViewerFrame(Frame):
             self.projectDict[key].UpdateItems(itemsDict.get(key, []))
             self.AddProjectFrame(project)
             
-
-
     def TestCallback(self, returnObject):
         for issue in returnObject[1]:
              print(issue)
@@ -257,7 +260,7 @@ class ProjectInspecterFrame(Frame):
             keys = self.info.GetItemsByType(type)
             for key in keys:
                 item = self.info.GetItem(key)
-                temp = Label(self.itemsScrollFrame.packFrame, text=f"{item.key:<10}: {item.summary}", anchor="w", justify="left")
+                temp = ItemFrame(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
                 temp.pack(side="top", fill="x", **packKwargs)
         self.itemsScrollFrame.ConfigureCanvas()
 
@@ -423,7 +426,264 @@ class IssueTypeFrame(Frame):
         self.toggle.AddControl(self.typeLabel, ProjectSelectFrame.SelectedColor)
         self.toggle.Subscribe(clickEvent)
 
+class ItemFrame(ParentItemFrame):
+    def __init__(self, parent, jira, jiraItem, handler, width=300, height=100, *args, **kwargs):
+        ParentItemFrame.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
 
+        
+
+        self.toggle = ToggleElement(self)
+        self.toggle.AddControl(self)
+
+        self.toggle.Subscribe(self.Handle_Toggle)
+
+        self.AddToRightClick()
+
+    def Handle_Toggle(self, frame:ItemFrame, isActive:bool):
+        if isActive:
+            self.Handle_GetChildren()
+
+
+    def AddToRightClick(self):
+        self.rightClickMenu.add_command(label="Get Children", command=self.Handle_GetChildren)
+
+    def Handle_GetChildren(self):
+        self.handler.AsyncWork(
+            JiraAgent.GetLinkIssues,
+            self.Callback_GetChildren,
+            self.jira,
+            self.item.key
+        )
+
+    def Callback_GetChildren(self, returnObject):
+        if not returnObject[0]:
+            print("Failed to get children")
+            return
+        
+        values = returnObject[1]["issues"]
+        childIssues = [Item(issue) for issue in values if issue["key"] != self.item.key]
+        CycleInspectorFrame.instance.AdoptChildren(childIssues)
+
+class CycleInspectorFrame(Frame):
+    instance:CycleInspectorFrame = None
+    selectedProjectKey = ""
+    def __init__(self, parent:Frame, asyncHandler:AsyncHandler, jira:JiraAgent.Jira, *args, **kwargs):
+        Frame.__init__(self, parent, *args, **kwargs)
+        self.parent = parent
+        self.handler = asyncHandler
+        self.jira = jira
+
+        CycleInspectorFrame.instance = self
+
+        self.cycleFrame = Frame(self, width=300, height=100)
+        self.cycleFrame.pack(side="top", fill="x", **packKwargs)
+
+        Label(self.cycleFrame, text="Create Testing Cycle", relief="sunken", bd=2, bg="grey75").place(
+            x=3, y=3, relwidth=0.95
+        )
+
+        self.cycleNameVar = StringVar()
+        self.cycleNameVar.set("New_Testing_Cycle")
+        self.cycleNameEntry = Entry(self.cycleFrame, textvariable=self.cycleNameVar)
+        self.cycleNameEntry.place(x=3, y=25, relwidth=0.95)
+
+        self.createCycleButton = Button(self.cycleFrame, text="Create Test Cycle", command=self.CreateTestCycle)
+        self.createCycleButton.place(x=3, y=50, relwidth=0.95)
+
+
+        ##############################################################################################################
+        ##############################################################################################################
+
+        self.childIssueScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
+        self.childIssueScrollFrame.packFrame.config(bg="grey55")
+        self.childIssueScrollFrame.pack(side="top", fill="x")
+        self.childIssueScrollFrame.hScroll.grid_forget()
+        self.childIssueScrollFrame.ConfigureCanvas(overrideWidth=256)
+
+        ##############################################################################################################
+        ##############################################################################################################
+
+        self.statusFrame = Frame(self, bd=2, relief="ridge", width=300, height=100)
+        self.statusFrame.pack(side="top", fill="x")
+
+        Label(self.statusFrame, text="Status", relief="sunken", bd=2, bg="grey75").place(
+            x=3, y=3, relwidth=0.95
+        )
+
+        Label(self.statusFrame, text="Epic:").place(
+            x=3, y=30, width=30
+        )
+
+        self.epicLabel= Label(self.statusFrame, text="-", relief="sunken", bd=2, bg="grey75")
+        self.epicLabel.place(x=35, y=30, width=150)
+
+
+        ##############################################################################################################
+        ##############################################################################################################
+
+        self.childItems:List[Item] = []
+
+    def CreateCycleEpic(self):
+        fields = {
+            "project": {"key": CycleInspectorFrame.selectedProjectKey},
+            "issuetype": {"name": "Epic"},
+            "summary": self.cycleNameVar.get(),
+            "description": f"Testing cycle with {len(self.childItems)} item(s).",
+        }
+
+        self.handler.AsyncWork(
+            JiraAgent.CreateAndGetItem,
+            self.CallBack_CreateCycleEpic,
+            self.jira,
+            fields
+        )
+
+    def CallBack_CreateCycleEpic(self, returnObject):
+        if not returnObject[0]:
+            self.epicLabel.config(text="Failed to create Cycle Epic")
+            return
+        
+        epicItem = Item(returnObject[1])
+        self.epicLabel.config(text=f"Epic Created: {epicItem.key}")
+
+        for childFrame in self.childIssueScrollFrame.packFrame.winfo_children():
+            childFrame:ChildItemFrame
+            childFrame.AddItemToTestCycle(epicItem)
+        
+
+    def CreateTestCycle(self):
+        numberOfChildren = len(self.childItems)
+
+        result = messagebox.askyesno("Create Test Cycle", f"Are you sure you want to create\n\n\"{self.cycleNameVar.get()}\"\n\nTest cycle with {numberOfChildren} item(s)?")
+
+        if not result:
+            return
+        
+        self.CreateCycleEpic()
+
+
+    def ClearChildren(self):
+        self.childIssueScrollFrame.ClearControls_Pack()
+        #self.childItems = []
+
+    def AdoptChildren(self, adoptees:List[Item]):
+        self.childItems += adoptees
+
+        self.Repopulate()
+
+    def AdoptChild(self, newChild:Item):
+        self.childItems.append(newChild)
+
+        self.Repopulate()
+
+    def RemoveChildren(self, exiles:List[Item]):
+        for item in exiles:
+            self.childItems.remove(item)
+
+        self.Repopulate()
+
+    def Repopulate(self):
+        self.ClearChildren()
+        self.PackChildren()
+
+    def PackChildren(self):
+        for item in self.childItems:
+            temp = ChildItemFrame(self.childIssueScrollFrame.packFrame, self.jira, item, self.handler)
+            temp.pack(side="top", fill="x", **packKwargs)
+
+        self.childIssueScrollFrame.ConfigureCanvas()
+
+class ChildItemFrame(ParentItemFrame):
+    def __init__(self, parent, jira, jiraItem, handler, width=300, height=100, *args, **kwargs):
+        ParentItemFrame.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
+
+        self.statusChangeCanvas = Canvas(self, height=20, width=20, bg="pink")
+        self.statusCreatedImage = None
+        self.statusChangeCanvas.place(x=228, y=7, height=20, width=20)
+
+        self.toggle = ToggleElement(self)
+        self.toggle.AddControl(self)
+        self.toggle.AddControl(self.typeCanvas)
+        self.toggle.AddControl(self.summaryLabel)
+        self.toggle.AddControl(self.keyLabel)
+        self.toggle.AddControl(self._assigneLabel)
+        self.toggle.AddControl(self._reporterLabel)
+        self.toggle.AddControl(self.assigneeLabel)
+        self.toggle.AddControl(self.reporterLabel)
+        self.toggle.SelectControl()
+
+
+        self.AddToRightClick()
+
+    def AddItemToTestCycle(self, epicItem:Item):
+        if self.statusCreatedImage is not None:
+            self.statusChangeCanvas.delete(self.statusCreatedImage)
+
+        itemKey = f"TC - {self.item.summary}"
+        description = f"Test case for cycle: {epicItem.key} - \"{epicItem.summary}\"\nOriginal Description:\n{self.item.description}"
+
+        fields = {
+            "project": {"key": CycleInspectorFrame.selectedProjectKey},
+            "issuetype": {"Test"},
+            "parent": {"key:": epicItem.key, "id": str(epicItem.id)},
+            "summary": itemKey,
+            "priority": {"name": "High"},
+            "description": description,
+        }
+
+        fields = {
+            "project": {"key": CycleInspectorFrame.selectedProjectKey},
+            "parent": {"key:": epicItem.key, "id": str(epicItem.id)},
+            "issuetype": {"name": "Test"},
+            "summary": itemKey,
+            "description": description,
+        }
+
+        self.handler.AsyncWork(
+            JiraAgent.CreateAndGetItem,
+            self.Callback_CreateItemForTestCycle,
+            self.jira,
+            fields
+        )
+
+    def Callback_CreateItemForTestCycle(self, returnObject):
+        if not returnObject[0]:
+            self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=Item.errorImage)
+            return
+        
+        childItem = Item(returnObject[1])
+        
+        self.handler.AsyncWork(
+            JiraAgent.LinkClonedIssue,
+            self.Callback_LinkIssues,
+            self.jira,
+            childItem.key,
+            self.item.key
+        )
+        
+    def Callback_LinkIssues(self, returnObject):
+        if not returnObject[0]:
+            self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=Item.errorImage)
+        else:
+            self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=Item.successImage)
+
+            
+
+        
+
+    def AddToRightClick(self):
+        self.rightClickMenu.add_command(label="Test Func", command=self.Handle_TestFun)
+
+    def Handle_TestFun(self):
+        self.handler.AsyncWork(
+            JiraAgent.WriteIssueToFile,
+            None,
+            self.jira,
+            "TUPCTOOL-33"
+        )
+
+    def Callback_TestFunc(self, returnObject):
+        pass
 
 def MainExitCall():
     jString = json.dumps(mainUI.SaveElements())

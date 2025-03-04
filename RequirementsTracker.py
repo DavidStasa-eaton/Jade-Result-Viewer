@@ -13,7 +13,7 @@ import time
 from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseBool, Button_WorkStart
 from JiraControls import JiraFrame, IssueFrame, CreateBugFrame, JiraAgent
 from ResultFiles import ResultFile, TableFrame, JadeTableResult, ResultFrame
-from ProjectExplorer import ProjectViewerFrame
+#from ProjectExplorer import ProjectViewerFrame
 
 configPath = "JadeResultParserConfig.txt"
 
@@ -67,8 +67,8 @@ class MainUI(Toplevel):
         #####################     Tab 2 - Project Explorer     ##########################
         #################################################################################
 
-        self.projectExplorer = ProjectViewerFrame(self)
-        self.noteBook.add(self.projectExplorer, text="Project Explorer")
+        #self.projectExplorer = ProjectViewerFrame(self)
+        #self.noteBook.add(self.projectExplorer, text="Project Explorer")
 
 
 

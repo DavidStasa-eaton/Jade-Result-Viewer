@@ -25,6 +25,8 @@ userName = ""
 global jiraInstance
 jiraInstance = None
 
+#linkedissue = DIGTOOLS-64
+
 def GetJiraInstance(createStaticInstant:bool=True) -> Jira:
     global jiraInstance
     jiraOptions = {"server": serverAddress, "verify": True}
@@ -71,9 +73,9 @@ def WriteIssueToFile(jira:Jira, issueKey:str, filterCustomFields:bool=True):
     with open(fileName, "w", encoding="utf-16") as wFile:
         wFile.write(json.dumps(issue, indent=4))
 
-def LinkIssues(jira:Jira, childIssue:str, parentIssue:str) -> Tuple[bool, Dict[str, Any]]:
+def LinkClonedIssue(jira:Jira, childIssue:str, parentIssue:str) -> Tuple[bool, Dict[str, Any]]:
     data = {
-            "type": {"name": "Depends" },
+            "type": {"name": "Cloners" },
             "inwardIssue": { "key": childIssue},
             "outwardIssue": {"key": parentIssue},
             }
@@ -85,8 +87,19 @@ def LinkIssues(jira:Jira, childIssue:str, parentIssue:str) -> Tuple[bool, Dict[s
         return (False, e.args)
     except httpExceptions.ConnectTimeout as e:
         return (False, e.args)
+    
+def GetLinkIssues(jira:Jira, linkedKey:str) -> Tuple[bool, Dict[str, Any]]:
+    jqlRequest = f"linkedissue = {linkedKey}"
+    try:
+        return (True, jira.jql(jqlRequest))
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
 
-def CreateBug(jira:Jira, fields:Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+def CreateItem(jira:Jira, fields:Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
     try:
         return (True, jira.create_issue(fields=fields))
     except httpExceptions.HTTPError as e:
@@ -95,6 +108,14 @@ def CreateBug(jira:Jira, fields:Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
         return (False, e.args)
     except httpExceptions.ConnectTimeout as e:
         return (False, e.args)
+    
+def CreateAndGetItem(jira:Jira, fields:Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    (success, info) = CreateItem(jira, fields)
+    if not success:
+        return (success, info)
+    
+    key = info["key"]
+    return GetJiraItem(jira, key)
     
 def TestFunc(xray:Xray, key:str) -> Tuple[bool, Dict[str, Any]]:
     token = "ATATT3xFfGF0VPJFulHvFMvk-Z7tx9XTJvk8qxyPP8zok2jC7_dwaPjI3uMlYdbOwfSdk7PgYuAmKJ38dGecEcOIbBCgxPMJ3W16DUsIa1S5ERfcbsWnxrsO1xIhSCvzZzWdWCNc9AzXddNus8-QzJiZOr8AVketJGMXFJnCKHRmFcRhPc1bsPo=016B99B7"
@@ -147,10 +168,34 @@ def AttachFile(jira:Jira, issueKey:str, pathToAttachment:str):
     except httpExceptions.ConnectTimeout as e:
         return [e.args]
     
+def GetJiraItem(jira:Jira, issueKey:str, filterCustomFields:bool=True):
+    try:
+        issueDict = jira.issue(issueKey)
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
+    
+    fields = issueDict["fields"]
+    copyDict = {}
+    for key, value in fields.items():
+        key:str
+        if not key.startswith("customfield"):
+            copyDict[key] = value
+        elif key.startswith("customfield") and value is not None:
+            copyDict[key] = value
+
+    issueDict["fields"] = copyDict
+
+    return (True, issueDict)
+
 def GetJiraIssue(jira:Jira, key:str) -> Dict[str, Any]:
     try:
         issue = jira.issue(key)
-    except httpExceptions.HTTPError:
+    except httpExceptions.HTTPError as e:
+        print(e)
         return {}
 
     fields = issue["fields"]
@@ -209,7 +254,6 @@ def GetProject(jira:Jira, projectKey:str):
     except httpExceptions.ConnectTimeout as e:
         return (False, e.args)
     
-
 def GetNewIssuesInProject(jira:Jira, projectKey:str, UpdateFunc:Callable=None, startIndex:int=0):
     allIssues = []
     returnCount = 100

@@ -1140,14 +1140,16 @@ class ToggleElement:
     def Subscribe(self, func:Callable[[Tk, bool], None]):
         self.ClickEvent.append(func)
 
-    def AddControl(self, control:Tk, selectColor:str, deselectColor:str=None):
+    def AddControl(self, control:Tk, selectColor:str=None, deselectColor:str=None):
         """Add control that will bind to <Button-1> and change format based on click status.
 
         Args:
             control (Tk): Control to format and add click event to. 
             selectColor (str): Background color to change control when selected
             deselectColor (str, optional): Background color to change control when selected. Defaults to color of control when function is called.
-        """        
+        """
+        if selectColor is None:
+            selectColor = RGB(150, 230, 250)
         if deselectColor is None:
             deselectColor = control.cget("bg")
         self.childControls[control] = (selectColor, deselectColor)

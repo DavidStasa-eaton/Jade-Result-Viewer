@@ -226,6 +226,7 @@ class IssueFrame(Frame):
     epicImage = None
     storyImage = None
     testCaseImage = None
+    requirementImage = None
     unknownImage = None
 
     errorImage = None
@@ -343,6 +344,7 @@ class IssueFrame(Frame):
         self.rightClickMenu = Menu(self, tearoff=0)
 
         self.rightClickMenu.add_command(label="Save Info", command=self.MenuClick_SaveInfo)
+        self.rightClickMenu.add_command(label="LinkIssue", command=self.MenuClick_LinkIssue)
 
     def MenuClick_SaveInfo(self, event=None):
         self.jiraFrame.AsyncFunctionCall(
@@ -351,6 +353,22 @@ class IssueFrame(Frame):
             self.jiraFrame.jira, 
             self.key,
             False
+        )
+
+    def MenuClick_LinkIssue(self, event=None):
+        results = simpledialog.askstring("Enter Issue Key", "Enter the key of the jira item you wish to link")
+        
+        if results is None:
+            return
+        
+        print(results)
+        
+        self.jiraFrame.AsyncFunctionCall(
+            JiraAgent.LinkClonedIssue, 
+            None,
+            self.jiraFrame.jira, 
+            self.key,
+            results
         )
 
     def LoadImageBasedOnType(self):
@@ -364,6 +382,8 @@ class IssueFrame(Frame):
             self.image = IssueFrame.epicImage
         elif self.issueType == "Test":
             self.image = IssueFrame.testCaseImage
+        elif self.issueType == "Requirement":
+            self.image = IssueFrame.requirementImage
         else:
             self.image = IssueFrame.unknownImage
 
@@ -446,6 +466,7 @@ class IssueFrame(Frame):
         IssueFrame.epicImage = PhotoImage(file=r"Resources\epic.png")
         IssueFrame.storyImage = PhotoImage(file=r"Resources\story.png")
         IssueFrame.testCaseImage = PhotoImage(file=r"Resources\testcase.png")
+        IssueFrame.requirementImage = PhotoImage(file=r"Resources\requirement.png")
         IssueFrame.unknownImage = PhotoImage(file=r"Resources\unknown.png")
 
         IssueFrame.errorImage = PhotoImage(file=r"Resources\error.png")
@@ -520,7 +541,7 @@ class CreateBugFrame(Frame):
             "description": self.summaryText.get("1.0", END),
         }
 
-        [success, bugInfo] = JiraAgent.CreateBug(self.issueFrame.jiraFrame.jira, fields)
+        [success, bugInfo] = JiraAgent.CreateItem(self.issueFrame.jiraFrame.jira, fields)
 
         if not success:
             print("\n\n\Failed to create bug\n\n")
@@ -528,7 +549,7 @@ class CreateBugFrame(Frame):
         
         createBugKey = bugInfo["key"]
 
-        [success, linkInfo] = JiraAgent.LinkIssues(self.issueFrame.jiraFrame.jira, createBugKey, self.issueFrame.key)
+        [success, linkInfo] = JiraAgent.LinkClonedIssue(self.issueFrame.jiraFrame.jira, createBugKey, self.issueFrame.key)
 
         JiraAgent.AttachFile(self.issueFrame.jiraFrame.jira, createBugKey, self.issueFrame.inputFilePath)
         JiraAgent.AttachFile(self.issueFrame.jiraFrame.jira, createBugKey, self.issueFrame.outputFilePath)
