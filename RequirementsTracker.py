@@ -13,6 +13,7 @@ import time
 from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseBool, Button_WorkStart
 from JiraControls import JiraFrame, IssueFrame, CreateBugFrame, JiraAgent
 from ResultFiles import ResultFile, TableFrame, JadeTableResult, ResultFrame
+from ProjectExplorer import ProjectViewerFrame
 
 configPath = "JadeResultParserConfig.txt"
 
@@ -39,26 +40,49 @@ class MainUI(Toplevel):
 
         MainUI.instance = self
 
-        self.ioFrame = IOFrame(self)
+        self.noteBook = ttk.Notebook(self)
+        self.noteBook.pack(side='top', fill="both", expand=True)
+
+        #################################################################################
+        #####################    Tab 1 - Single File Viewer    ##########################
+        #################################################################################
+
+        self.singleResultFrame = Frame(self)
+        self.noteBook.add(self.singleResultFrame, text="File Viewer")
+        
+        self.ioFrame = IOFrame(self.singleResultFrame)
         self.ioFrame.pack(side="left", anchor='n', fill="y")
         self.ioFrame.fileSelectedEvents.append(self.Handle_FileSelected)
 
-        self.parentJiraFrame = Frame(self)
+        self.parentJiraFrame = Frame(self.singleResultFrame)
         self.jiraFrame = JiraFrame(self.parentJiraFrame)
         #self.bugFrame = CreateBugFrame(self.parentJiraFrame)
 
-        self.resultFrame = ResultViewerFrame(self)
+        self.resultFrame = ResultViewerFrame(self.singleResultFrame)
         self.resultFrame.pack(side="left", fill="both", expand=True)
 
         self.parentJiraFrame.pack(side="left", fill="both")
 
+        #################################################################################
+        #####################     Tab 2 - Project Explorer     ##########################
+        #################################################################################
+
+        self.projectExplorer = ProjectViewerFrame(self)
+        self.noteBook.add(self.projectExplorer, text="Project Explorer")
+
+
+
         if JiraAgent.jiraImported:
-            self.jiraFrame.pack(side="top", fill="both", expand=True)
-            #self.bugFrame.pack(side="top", fill="both")
-            self.resultFrame.DoneLoadingEvents.append(self.jiraFrame.Callback_ResultFileLoaded)
+            self.LoadJiraElements()
 
 
         self.RestoreElements()
+
+    def LoadJiraElements(self):
+        self.jiraFrame.pack(side="top", fill="both", expand=True)
+        #self.noteBook.add(self.jiraFrame, "Jira")
+        #self.bugFrame.pack(side="top", fill="both")
+        self.resultFrame.DoneLoadingEvents.append(self.jiraFrame.Callback_ResultFileLoaded)
 
     def TempFunc(self):
         pass
@@ -181,6 +205,9 @@ class IOFrame(Frame):
 
     def PopulateFilesInDir(self):
         self.availableFilesListBox.delete(0, END)
+
+        if not os.path.exists(self.resultDirVar.get()):
+            return
 
         files = os.listdir(self.resultDirVar.get())
 
@@ -468,7 +495,6 @@ class ResultViewerFrame(Frame):
         self.text.see(textIndex)
         lineInfo = self.text.dlineinfo(textIndex)
         self.text.yview_scroll(lineInfo[1]-20, "pixels")
-
 
 def MainExitCall():
 

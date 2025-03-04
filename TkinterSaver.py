@@ -2,7 +2,7 @@ import json
 import re
 import os
 import tkinter
-from tkinter import Tk, Frame, Entry, Button, Label, Scrollbar, Canvas, BooleanVar, IntVar, StringVar, ttk, END
+from tkinter import Tk, Frame, Entry, Button, Label, Scrollbar, Canvas, BooleanVar, IntVar, StringVar, ttk, END, Toplevel
 import time
 import math
 import re
@@ -624,6 +624,7 @@ class ScrollFrame(Frame):
 
         if overrideWidth > -1:
             self.canvas.config(width=overrideWidth)
+            self.config(width=overrideWidth)
 
         #self.canvas.itemconfig(self.packWindow, height=self.frame.winfo_height())
         #self.packFrame.config(height=self.frame.winfo_height())
@@ -1030,6 +1031,158 @@ class AsyncButton(Button): # Unfiished. Unsure if this makes sense to make
     def __click__(self, event=None):
         print("Clicked")
 
+class LoadButton(Button):
+    def __init__(self, parent:Frame, loadChars:List[str]=None, *args, **kwargs):
+        Button.__init__(self, parent, *args, **kwargs)
+        if loadChars is None:
+            loadChars = [".", "..", "..."]
+        self.loadChars = loadChars
+
+        self.charCount = len(self.loadChars)
+
+        self.storedText = ""
+        self.loadIndex = 0
+        self.keepLoading = True
+
+    def UseCircleLoadingIcons(self):
+        self.loadChars = [
+            u"\u25CB",
+            u"\u25D4",
+            u"\u25D1",
+            u"\u25D5",
+            u"\u263B",
+        ]
+        self.charCount = len(self.loadChars)
+
+    def StartLoading(self):
+        self.storedText = self.cget("text")
+        self.config(state="disabled")
+
+        self.LoadLoop()
+
+    def StopLoading(self):
+        self.keepLoading = False
+        
+
+    def LoadLoop(self):
+        self.config(text=self.loadChars[self.loadIndex])
+
+        self.loadIndex += 1
+        self.loadIndex = self.loadIndex % self.charCount
+
+        if self.keepLoading:
+            self.after(250, self.LoadLoop)
+        else:
+            self.config(text=self.storedText, state="normal")
+
+class ToolTip:
+    def __init__(self, control:Tk, text:str, waitTime:int=500, wrapLength=180):
+        self.control = control
+        self.text = text
+        self.waitTime = waitTime     # ms
+        self.wrapLength = wrapLength # pixels
+
+        self.control.bind("<Enter>", self.Handle_Enter)
+        self.control.bind("<Leave>", self.Handle_Leave)
+        self.control.bind("<ButtonPress>", self.Handle_Leave)
+
+        self.afterID = None
+        self.popUp = None
+
+    def Handle_Enter(self, event=None):
+        if self.popUp:
+            return
+        
+        self.Handle_Leave(event)
+
+        self.control.after(self.waitTime, self.ShowTip)
+
+    def Handle_Leave(self, event=None):
+        afterID = self.afterID
+        self.afterID = None
+        
+        if afterID:
+            self.control.after_cancel(afterID)
+
+        self.HideTip()
+
+    def ShowTip(self):
+        x = 0
+        y = 0
+
+        x, y, cx, cy = self.control.bbox("insert")
+        x += self.control.winfo_rootx() + 25
+        y += self.control.winfo_rooty() + 20
+
+        self.popUp = Toplevel(self.control)
+        self.popUp.wm_overrideredirect(True)
+        self.popUp.wm_geometry(f"+{x}+{y}")
+
+        label = Label(self.popUp, text=self.text, justify="left", relief="solid", bd=2, 
+                      wraplength=self.wrapLength)
+        label.pack(ipadx=1)
+
+    def HideTip(self):
+        popup = self.popUp
+        self.popUp = None
+        if popup:
+            popup.destroy()
+        
+class ToggleElement:
+    def __init__(self, parent:Tk):
+        self.parent = parent
+
+        self.isSelected = False
+        self.childControls:Dict[Tk, Tuple[str, str]] = {} # key will be control. First tuple Item will be select color, second tuple is deselect color
+
+        self.ClickEvent:List[Callable[[Tk, bool], None]] = []
+
+    def Subscribe(self, func:Callable[[Tk, bool], None]):
+        self.ClickEvent.append(func)
+
+    def AddControl(self, control:Tk, selectColor:str, deselectColor:str=None):
+        """Add control that will bind to <Button-1> and change format based on click status.
+
+        Args:
+            control (Tk): Control to format and add click event to. 
+            selectColor (str): Background color to change control when selected
+            deselectColor (str, optional): Background color to change control when selected. Defaults to color of control when function is called.
+        """        
+        if deselectColor is None:
+            deselectColor = control.cget("bg")
+        self.childControls[control] = (selectColor, deselectColor)
+        control.bind("<Button-1>", self.ToggleControl)
+
+    def ToggleControl(self, event=None):
+        if self.isSelected:
+            self.DeselectControl()
+        else:
+            self.SelectControl()
+
+    def FormatControls(self):
+        selectIndex = 0 if self.isSelected else 1
+        relief = "sunken" if self.isSelected else "raised"
+
+        for control, colorTuple in self.childControls.items():
+            cColor = colorTuple[selectIndex]
+            control.config(bg=cColor)
+
+        self.parent.config(relief=relief, bd=2)
+
+
+    def SelectControl(self):
+        self.isSelected = True
+        self.FormatControls()
+
+        for func in self.ClickEvent:
+            func(self.parent, self.isSelected)
+
+    def DeselectControl(self):
+        self.isSelected = False
+        self.FormatControls()
+
+        for func in self.ClickEvent:
+            func(self.parent, self.isSelected)
 
 def VerifyIpAddress(entertedIpAdress:str) -> bool:
     """Determine if enteredIpAddress is in the correct format for an IP address

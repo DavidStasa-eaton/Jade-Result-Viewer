@@ -5,7 +5,7 @@ from requests import exceptions as httpExceptions
 import requests
 from JWT_Handler import GetToken as GetJWT
 
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING, Callable
 
 try:
     from atlassian import Jira, Xray
@@ -22,13 +22,24 @@ TOKEN = ""
 serverAddress = "https://eaton-corp.atlassian.net/"
 userName = ""
 
+global jiraInstance
+jiraInstance = None
 
-def GetJiraInstance() -> Jira:
+def GetJiraInstance(createStaticInstant:bool=True) -> Jira:
+    global jiraInstance
     jiraOptions = {"server": serverAddress, "verify": True}
     j = Jira(serverAddress,
             username=userName,
             password=TOKEN, verify_ssl=False)
+    if createStaticInstant:
+        jiraInstance = j
     return j
+
+def CreateStaticJiraInstance() -> Jira:
+    global jiraInstance
+    if jiraInstance is None:
+        return GetJiraInstance()
+    return jiraInstance
 
 def GetXrayInstance() -> Jira:
     jiraOptions = {"server": serverAddress, "verify": True}
@@ -37,7 +48,12 @@ def GetXrayInstance() -> Jira:
             password=TOKEN, verify_ssl=False)
     return x
 
+def WriteDictToFile(dictToWrite:Dict[Any, Any], fileName="JiraStuff.txt"):
+    with open(fileName, "w", encoding="utf-16") as wFile:
+        wFile.write(json.dumps(dictToWrite, indent=4))
+
 def WriteIssueToFile(jira:Jira, issueKey:str, filterCustomFields:bool=True):
+    
     issue = jira.issue(issueKey)
 
     fields = issue["fields"]
@@ -118,7 +134,6 @@ def TestFunc(xray:Xray, key:str) -> Tuple[bool, Dict[str, Any]]:
     print(url)
     print("\n\n")
     
-
 def AttachFile(jira:Jira, issueKey:str, pathToAttachment:str):
     if not os.path.exists(pathToAttachment):
         raise FileNotFoundError(f"File of '{pathToAttachment}' not found")
@@ -132,9 +147,6 @@ def AttachFile(jira:Jira, issueKey:str, pathToAttachment:str):
     except httpExceptions.ConnectTimeout as e:
         return [e.args]
     
-def GetJiraProjects(jira:Jira) -> List[Any]:
-    return jira.projects()
-
 def GetJiraIssue(jira:Jira, key:str) -> Dict[str, Any]:
     try:
         issue = jira.issue(key)
@@ -172,6 +184,91 @@ def SetIssueStatus(jira:Jira, key:str, newStatus:int) -> Tuple[bool, List[Dict[s
     except httpExceptions.ConnectTimeout as e:
         return (False, e.args)
 
+
+########################################################################################################################
+####################################               Projects                 ############################################
+########################################################################################################################
+
+def GetAllProjects(jira:Jira):
+    try:
+        return (True, jira.get_all_projects())
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
+    
+def GetProject(jira:Jira, projectKey:str):
+    try:
+        return (True, jira.project(projectKey))
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
+    
+
+def GetNewIssuesInProject(jira:Jira, projectKey:str, UpdateFunc:Callable=None, startIndex:int=0):
+    allIssues = []
+    returnCount = 100
+    try:
+        while returnCount == 100:
+            moreIssues = jira.get_all_project_issues(projectKey, start=startIndex+len(allIssues), limit=100)
+            returnCount = len(moreIssues)
+
+            allIssues += moreIssues
+
+            if UpdateFunc:
+                UpdateFunc(returnCount, len(allIssues))
+  
+        return (True, allIssues)
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
+
+def GetAllIssuesInProject(jira:Jira, projectKey:str, UpdateFunc:Callable=None):
+    allIssues = []
+    returnCount = 100
+    try:
+        while returnCount == 100:
+            moreIssues = jira.get_all_project_issues(projectKey, start=len(allIssues), limit=100)
+            returnCount = len(moreIssues)
+
+            allIssues += moreIssues
+
+            if UpdateFunc:
+                UpdateFunc(returnCount, len(allIssues))
+  
+        return (True, allIssues)
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
+    
+def GetAllIssueKeysInProject(jira:Jira, projectKey:str):
+    allIssues = []
+    returnCount = 100
+    try:
+        while returnCount == 100:
+            print(returnCount, len(allIssues))
+            moreIssues = jira.get_project_issuekey_all(projectKey, start=len(allIssues), limit=100)
+            returnCount = len(moreIssues)
+
+            allIssues += moreIssues
+        return (True, allIssues)
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
 
 if __name__ == "__main__":
     print("Don't run this")

@@ -28,8 +28,6 @@ class JiraFrame(Frame):
     def __init__(self, parent:Frame, *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
 
-        
-
         self.userFrame = Frame(self)
         self.userFrame.pack(side="top", fill="x")
         self.userFrame.columnconfigure(1, weight=1)
@@ -170,7 +168,7 @@ class JiraFrame(Frame):
             # handle user inputs not given. 
             return
         
-        self.jira = JiraAgent.GetJiraInstance()
+        self.jira = JiraAgent.CreateStaticJiraInstance()
         self.jiraThread.start()
 
         self.UI_Loop()
@@ -250,7 +248,7 @@ class IssueFrame(Frame):
         
 
         if self.validReq:
-            self.id = issueJson["id"]
+            self.id = issueJson.get("id", -1)
             self.issueType = self.issueJson["issuetype"]["name"]
             self.status = self.issueJson["status"]["name"]
             self.projectDict = self.issueJson["project"]
