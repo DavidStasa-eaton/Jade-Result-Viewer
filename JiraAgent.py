@@ -127,43 +127,6 @@ def CreateAndGetItem(jira:Jira, fields:Dict[str, Any]) -> Tuple[bool, Dict[str, 
     key = info["key"]
     return GetJiraItem(jira, key)
     
-def TestFunc(xray:Xray, key:str) -> Tuple[bool, Dict[str, Any]]:
-    cycle_id = "ade7d934-a6b4-4128-92e7-a7a65112625"
-    issueKey = "MT-1618"
-    version_id = -1
-    project_id = "12661"
-    #"https://eaton-corp.atlassian.net/projects/rest/zapi/latest/teststep/MT-1618"
-    accessToken = "NDk0MzY5ZjctNzBkZi0zYzQwLWJjYTctMDY5YjY3Y2Y4ZWYxIDVhMjgzYjE0MTI5ZWFmNzUxZTNkYjI1ZSBVU0VSX0RFRkFVTFRfTkFNRQ"
-    url = f"https://eaton-corp.atlassian.net/jira/projects/rest/api/2.0/teststep/8175269?projectId=12661"
-    #url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/api/2.0/teststep/8175269?12661={GetJWT()}"
-    url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/api/1.0/projectID=12661"
-    url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/zapi/latest/execution?projectId={project_id}&versionId={version_id}&cycleId={cycle_id}"
-    url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/api/1.0/cycle/cycleId?projectId={project_id}&versionId={version_id}"
-    url = f"https://prod-api.zephyr4jiracloud.com/connect/public/rest/api/1.0/cycle/{cycle_id}?projectId={project_id}&versionId={version_id}"
-    #url = f"{serverAddress}jira/rest/zapi/latest/cycle/cycleID{cycle_id}&versionId=-1&projectId:{project_id}"
-    #url = f"https://prod-api.zephyr4jiracloud.com/v2/rest/zapi/latest/cycle/cycleID{cycle_id}&versionId=-1&projectId:{project_id}"
-    
-    headers = {
-        "zapiAccessKey": "NDk0MzY5ZjctNzBkZi0zYzQwLWJjYTctMDY5YjY3Y2Y4ZWYxIDVhMjgzYjE0MTI5ZWFmNzUxZTNkYjI1ZSBVU0VSX0RFRkFVTFRfTkFNRQ",
-        "Authorization": f"JWT {GetJWT()}",
-        "Content-Type": "application/json"
-    }
-    try:
-        response = requests.get(url, headers=headers, verify=False)
-        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-        test_case_data = response.json()
-        print(json.dumps(test_case_data, indent=2))
-    except requests.exceptions.RequestException as e:
-        print(f"Error during API request: {e}")
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON response: {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-
-    print("\n\n")
-    print(url)
-    print("\n\n")
-    
 def AttachFile(jira:Jira, issueKey:str, pathToAttachment:str):
     if not os.path.exists(pathToAttachment):
         raise FileNotFoundError(f"File of '{pathToAttachment}' not found")
