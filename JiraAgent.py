@@ -88,6 +88,16 @@ def LinkClonedIssue(jira:Jira, childIssue:str, parentIssue:str) -> Tuple[bool, D
     except httpExceptions.ConnectTimeout as e:
         return (False, e.args)
     
+def GetJQL(jira:Jira, jqlRequest:str) -> Tuple[bool, Dict[str, Any]]:
+    try:
+        return (True, jira.jql(jqlRequest))
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
+    
 def GetLinkIssues(jira:Jira, linkedKey:str) -> Tuple[bool, Dict[str, Any]]:
     jqlRequest = f"linkedissue = {linkedKey}"
     try:
@@ -118,7 +128,6 @@ def CreateAndGetItem(jira:Jira, fields:Dict[str, Any]) -> Tuple[bool, Dict[str, 
     return GetJiraItem(jira, key)
     
 def TestFunc(xray:Xray, key:str) -> Tuple[bool, Dict[str, Any]]:
-    token = "ATATT3xFfGF0VPJFulHvFMvk-Z7tx9XTJvk8qxyPP8zok2jC7_dwaPjI3uMlYdbOwfSdk7PgYuAmKJ38dGecEcOIbBCgxPMJ3W16DUsIa1S5ERfcbsWnxrsO1xIhSCvzZzWdWCNc9AzXddNus8-QzJiZOr8AVketJGMXFJnCKHRmFcRhPc1bsPo=016B99B7"
     cycle_id = "ade7d934-a6b4-4128-92e7-a7a65112625"
     issueKey = "MT-1618"
     version_id = -1

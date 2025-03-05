@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu, messagebox
+from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu, messagebox, Checkbutton, BooleanVar
 import json
 from typing import Dict, List, Tuple, Any, Callable, TYPE_CHECKING
 import re
@@ -13,7 +13,7 @@ from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseB
 from AsyncHandler import AsyncHandler
 from JiraItem import JiraItem as Item
 from JiraItem import JiraType
-from JiraItem import ItemFrame as ParentItemFrame
+from JiraItem import ItemCard as ParentItemCard
 from JiraControls import IssueFrame
 
 import JiraAgent as JiraAgent
@@ -29,20 +29,19 @@ class ProjectViewerFrame(Frame):
         self.handler.StartAsync()
 
         self.selectFrame = Frame(self)
-        self.selectFrame.pack(side="left")
+        self.selectFrame.pack(side="left", fill="y")
 
         self.addProjectFrame = AddProjectFrame(self.selectFrame, self)
         self.addProjectFrame.pack(side="top", fill="x", **packKwargs)
 
         self.projectDict:Dict[str, Project] = {}
-        self.selectDict:Dict[str, ProjectSelectFrame] = {}
+        self.selectDict:Dict[str, ProjectSelectCard] = {}
 
         self.projectsScrollFrame = ScrollFrame(self.selectFrame, width=1, bg="grey55", relief="sunken", bd=2)
         self.projectsScrollFrame.packFrame.config(bg="grey55")
-        self.projectsScrollFrame.pack(side="top", fill="x")
+        self.projectsScrollFrame.pack(side="top", fill="both", expand=True, **packKwargs)
         self.projectsScrollFrame.hScroll.grid_forget()
         self.projectsScrollFrame.ConfigureCanvas(overrideWidth=256)
-        self.projectsScrollFrame.packFrame.config(bg="blue")
 
         #####################################################################################################################
         ##############################                Project Inspector                ######################################
@@ -52,16 +51,19 @@ class ProjectViewerFrame(Frame):
         self.selectedProjectVar.set("")
         self.selectedProjectVar.trace_add("write", self.Handle_ProjectSelected)
 
-        self.inspector = ProjectInspecterFrame(self, None, self.handler, width=500, height=500, bg="cyan")
+        self.inspector = ProjectInspecterFrame(self, None, self.handler, width=500, height=500, relief="ridge", bd=2)
         self.inspector.pack(side='left', fill="both", expand=True, **packKwargs)
 
-        self.childInspecter = CycleInspectorFrame(self, self.handler, self.jira)
-        self.childInspecter.pack(side="left", fill="both", expand=True, **packKwargs)
+        self.childInspecter = CycleInspectorFrame(self, self.handler, self.jira, self.GetLoadedProject)
+        self.childInspecter.pack(side="left", fill="y", **packKwargs)
 
         #self.testButton = Button(self, text="Test", command=self.Click_TestButton)
         #self.testButton.pack()
 
         JiraType.PopulateImages()
+
+    def GetLoadedProject(self) -> Project:
+        return self.projectDict[self.selectedProjectVar.get()]
 
     def EventHandler_ProjectSelected(self, key:str):
         selectecedProject = self.selectedProjectVar.get()
@@ -73,7 +75,6 @@ class ProjectViewerFrame(Frame):
     def Handle_ProjectSelected(self, var, index=-1, event=None):
         key = self.selectedProjectVar.get()
         self.inspector.ChangeLoadedProject(key, self.projectDict[key])
-        CycleInspectorFrame.selectedProjectKey = key
 
     def Click_TestButton(self):
         self.handler.AsyncWork(self.TestFunc, self.TestCallback)
@@ -88,7 +89,7 @@ class ProjectViewerFrame(Frame):
         self.AddProjectFrame(project)
 
     def AddProjectFrame(self, projectInfo:Project):
-        temp = ProjectSelectFrame(self.projectsScrollFrame.packFrame, projectInfo, self.handler)
+        temp = ProjectSelectCard(self.projectsScrollFrame.packFrame, projectInfo, self.handler)
         temp.SubscribeToClickEvent(self.EventHandler_ProjectSelected)
         self.selectDict[projectInfo.key] = temp
         temp.pack(side="top", fill="x", expand=True, **packKwargs)
@@ -206,6 +207,7 @@ class ProjectInspecterFrame(Frame):
         self.handler = asyncHandler
 
         self.columnconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
 
         self.summaryFrame = Frame(self, width=500, height=100)
         self.summaryFrame.grid(row=0, column=0, columnspan=2, **gridKwargs)
@@ -216,15 +218,20 @@ class ProjectInspecterFrame(Frame):
         self.nameLabel = Label(self.summaryFrame, textvariable=self.nameVar)
         self.nameLabel.place(x=5, y=30, width=100)
 
+        self.reqsOnlyVar = BooleanVar()
+        self.reqsOnlyVar.set(True)
+        self.requirementsOnlyCheckbox = Checkbutton(self, text="Only get Functional Requirements", variable=self.reqsOnlyVar)
+        self.requirementsOnlyCheckbox.grid(row=1, column=0, columnspan=2, **gridKwargs)
+
         self.typesScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
         self.typesScrollFrame.packFrame.config(bg="grey55")
-        self.typesScrollFrame.grid(row=1, column=0, **gridKwargs)
+        self.typesScrollFrame.grid(row=2, column=0, **gridKwargs)
         self.typesScrollFrame.hScroll.grid_forget()
         self.typesScrollFrame.ConfigureCanvas(overrideWidth=125)
 
         self.itemsScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
         self.itemsScrollFrame.packFrame.config(bg="grey55")
-        self.itemsScrollFrame.grid(row=1, column=1, **gridKwargs)
+        self.itemsScrollFrame.grid(row=2, column=1, **gridKwargs)
         self.itemsScrollFrame.hScroll.grid_forget()
         self.itemsScrollFrame.ConfigureCanvas(overrideWidth=125)
 
@@ -241,11 +248,11 @@ class ProjectInspecterFrame(Frame):
         self.typesScrollFrame.ClearControls_Pack()
 
         for itemType in self.info.typeDict:
-            temp = IssueTypeFrame(self.typesScrollFrame.packFrame, itemType, self.Handle_TypeSelectedEvent)
+            temp = IssueTypeCard(self.typesScrollFrame.packFrame, itemType, self.Handle_TypeSelectedEvent)
             temp.pack(side="top", fill="x", **packKwargs)
         self.typesScrollFrame.ConfigureCanvas(125)
 
-    def Handle_TypeSelectedEvent(self, typeFrame:IssueTypeFrame, isSelected:bool):
+    def Handle_TypeSelectedEvent(self, typeFrame:IssueTypeCard, isSelected:bool):
         if isSelected:
             self.typesSelected.append(typeFrame.issueType)
         else:
@@ -256,15 +263,34 @@ class ProjectInspecterFrame(Frame):
     def PackSelectedItemsByType(self):
         self.itemsScrollFrame.ClearControls_Pack()
 
-        for type in self.typesSelected:
-            keys = self.info.GetItemsByType(type)
-            for key in keys:
-                item = self.info.GetItem(key)
-                temp = ItemFrame(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
-                temp.pack(side="top", fill="x", **packKwargs)
+        for issueType in self.typesSelected:
+            #keys = self.info.GetItemsByType(type)
+            if self.reqsOnlyVar.get():
+                jqlString = f"project = {self.info.key} AND issuetype = {issueType} AND labels = \"FunctionalRequirements\" ORDER BY created DESC"
+            else:
+                jqlString = f"project = {self.info.key} AND issuetype = {issueType}  ORDER BY created DESC"
+
+            self.handler.AsyncWork(
+                JiraAgent.GetJQL,
+                self.Callback_GetItems,
+                self.info.jira,
+                jqlString
+            )
+                #item = self.info.GetItem(key)
+                #temp = ItemFrame(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
+                #temp.pack(side="top", fill="x", **packKwargs)
         self.itemsScrollFrame.ConfigureCanvas()
 
-class ProjectSelectFrame(Frame):
+    def Callback_GetItems(self, returnObject):
+        if not returnObject[0]:
+            return
+        
+        for issueDict in returnObject[1]["issues"]:
+            item = Item(issueDict)
+            temp = ProjectItemCard(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
+            temp.pack(side="top", fill="x", **packKwargs)
+
+class ProjectSelectCard(Frame):
     SelectedColor = RGB(150, 230, 250)
     def __init__(self, parent:Frame, info:Project, asyncHandler:AsyncHandler, *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
@@ -319,15 +345,13 @@ class ProjectSelectFrame(Frame):
             func(self.info.key)
 
         self.config(bg="cyan", relief="sunken", bd=2)
-        self.keyLabel.config(bg=ProjectSelectFrame.SelectedColor)
-        self.nameLabel.config(bg=ProjectSelectFrame.SelectedColor)
-        self._IssueCountLabel.config(bg=ProjectSelectFrame.SelectedColor)
+        self.keyLabel.config(bg=ProjectSelectCard.SelectedColor)
+        self.nameLabel.config(bg=ProjectSelectCard.SelectedColor)
+        self._IssueCountLabel.config(bg=ProjectSelectCard.SelectedColor)
         self.issueCountLabel.config(bg=RGB(75, 220, 220))
-        self.refreshButton.config(bg=ProjectSelectFrame.SelectedColor)
+        self.refreshButton.config(bg=ProjectSelectCard.SelectedColor)
 
         self.isSelected = True
-
-        
 
     def DeselectProject(self):
 
@@ -394,7 +418,6 @@ class ProjectSelectFrame(Frame):
 
         self.handler.AsyncUiCall(lambda totalCount: self.issueCountLabel.config(text=f"Fetching... Found: {totalCount}"), totalCount)
 
-
     def Callback_GetIssues(self, returnObject:Tuple[bool, List[Dict[str, Any]]]):
         self.refreshButton.StopLoading()
         if not returnObject[0]:
@@ -404,8 +427,8 @@ class ProjectSelectFrame(Frame):
         self.info.UpdateItems(returnObject[1])
         self.issueCountLabel.config(text=len(returnObject[1]))
         
-class IssueTypeFrame(Frame):
-    def __init__(self, parent:Frame, issueType:str, clickEvent:Callable[[IssueTypeFrame], None], *args, **kwargs):
+class IssueTypeCard(Frame):
+    def __init__(self, parent:Frame, issueType:str, clickEvent:Callable[[IssueTypeCard], None], *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
         self.issueType = issueType
 
@@ -421,28 +444,33 @@ class IssueTypeFrame(Frame):
         self.typeLabel.place(x=30, y=0)
 
         self.toggle = ToggleElement(self)
-        self.toggle.AddControl(self, ProjectSelectFrame.SelectedColor)
-        self.toggle.AddControl(self.typeCanvas, ProjectSelectFrame.SelectedColor)
-        self.toggle.AddControl(self.typeLabel, ProjectSelectFrame.SelectedColor)
+        self.toggle.AddControl(self, ProjectSelectCard.SelectedColor)
+        self.toggle.AddControl(self.typeCanvas, ProjectSelectCard.SelectedColor)
+        self.toggle.AddControl(self.typeLabel, ProjectSelectCard.SelectedColor)
         self.toggle.Subscribe(clickEvent)
 
-class ItemFrame(ParentItemFrame):
-    def __init__(self, parent, jira, jiraItem, handler, width=300, height=100, *args, **kwargs):
-        ParentItemFrame.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
-
-        
+class ProjectItemCard(ParentItemCard):
+    def __init__(self, parent, jira, jiraItem, handler, width=300, height=110, *args, **kwargs):
+        ParentItemCard.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
 
         self.toggle = ToggleElement(self)
         self.toggle.AddControl(self)
+
+        self.toggle.AddControl(self.typeCanvas)
+        self.toggle.AddControl(self.summaryLabel, RGB(75, 220, 220))
+        self.toggle.AddControl(self.keyLabel)
+        self.toggle.AddControl(self._assigneLabel)
+        self.toggle.AddControl(self._reporterLabel)
+        self.toggle.AddControl(self.assigneeLabel)
+        self.toggle.AddControl(self.reporterLabel)
 
         self.toggle.Subscribe(self.Handle_Toggle)
 
         self.AddToRightClick()
 
-    def Handle_Toggle(self, frame:ItemFrame, isActive:bool):
+    def Handle_Toggle(self, frame:ProjectItemCard, isActive:bool):
         if isActive:
             self.Handle_GetChildren()
-
 
     def AddToRightClick(self):
         self.rightClickMenu.add_command(label="Get Children", command=self.Handle_GetChildren)
@@ -466,29 +494,31 @@ class ItemFrame(ParentItemFrame):
 
 class CycleInspectorFrame(Frame):
     instance:CycleInspectorFrame = None
-    selectedProjectKey = ""
-    def __init__(self, parent:Frame, asyncHandler:AsyncHandler, jira:JiraAgent.Jira, *args, **kwargs):
+    def __init__(self, parent:Frame, asyncHandler:AsyncHandler, jira:JiraAgent.Jira, getProjFunc:Callable[[], Project], *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
         self.parent = parent
         self.handler = asyncHandler
         self.jira = jira
+        self.GetLoadedProject = getProjFunc
 
         CycleInspectorFrame.instance = self
 
-        self.cycleFrame = Frame(self, width=300, height=100)
+        frameWidth = 325
+
+        self.cycleFrame = Frame(self, width=frameWidth, height=100)
         self.cycleFrame.pack(side="top", fill="x", **packKwargs)
 
         Label(self.cycleFrame, text="Create Testing Cycle", relief="sunken", bd=2, bg="grey75").place(
-            x=3, y=3, relwidth=0.95
+            x=3, y=3, width=frameWidth-6
         )
 
         self.cycleNameVar = StringVar()
         self.cycleNameVar.set("New_Testing_Cycle")
         self.cycleNameEntry = Entry(self.cycleFrame, textvariable=self.cycleNameVar)
-        self.cycleNameEntry.place(x=3, y=25, relwidth=0.95)
+        self.cycleNameEntry.place(x=3, y=25, width=frameWidth-6)
 
         self.createCycleButton = Button(self.cycleFrame, text="Create Test Cycle", command=self.CreateTestCycle)
-        self.createCycleButton.place(x=3, y=50, relwidth=0.95)
+        self.createCycleButton.place(x=3, y=50, width=frameWidth-6)
 
 
         ##############################################################################################################
@@ -496,9 +526,9 @@ class CycleInspectorFrame(Frame):
 
         self.childIssueScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
         self.childIssueScrollFrame.packFrame.config(bg="grey55")
-        self.childIssueScrollFrame.pack(side="top", fill="x")
+        self.childIssueScrollFrame.pack(side="top", fill="both", expand=True)
         self.childIssueScrollFrame.hScroll.grid_forget()
-        self.childIssueScrollFrame.ConfigureCanvas(overrideWidth=256)
+        self.childIssueScrollFrame.ConfigureCanvas(overrideWidth=275)
 
         ##############################################################################################################
         ##############################################################################################################
@@ -507,7 +537,7 @@ class CycleInspectorFrame(Frame):
         self.statusFrame.pack(side="top", fill="x")
 
         Label(self.statusFrame, text="Status", relief="sunken", bd=2, bg="grey75").place(
-            x=3, y=3, relwidth=0.95
+            x=3, y=3, width=frameWidth-6
         )
 
         Label(self.statusFrame, text="Epic:").place(
@@ -525,7 +555,7 @@ class CycleInspectorFrame(Frame):
 
     def CreateCycleEpic(self):
         fields = {
-            "project": {"key": CycleInspectorFrame.selectedProjectKey},
+            "project": {"key": self.GetLoadedProject().key},
             "issuetype": {"name": "Epic"},
             "summary": self.cycleNameVar.get(),
             "description": f"Testing cycle with {len(self.childItems)} item(s).",
@@ -547,7 +577,7 @@ class CycleInspectorFrame(Frame):
         self.epicLabel.config(text=f"Epic Created: {epicItem.key}")
 
         for childFrame in self.childIssueScrollFrame.packFrame.winfo_children():
-            childFrame:ChildItemFrame
+            childFrame:ChildItemCard
             childFrame.AddItemToTestCycle(epicItem)
         
 
@@ -560,7 +590,6 @@ class CycleInspectorFrame(Frame):
             return
         
         self.CreateCycleEpic()
-
 
     def ClearChildren(self):
         self.childIssueScrollFrame.ClearControls_Pack()
@@ -588,28 +617,34 @@ class CycleInspectorFrame(Frame):
 
     def PackChildren(self):
         for item in self.childItems:
-            temp = ChildItemFrame(self.childIssueScrollFrame.packFrame, self.jira, item, self.handler)
+            temp = ChildItemCard(self.childIssueScrollFrame.packFrame, self.jira, item, self.handler)
             temp.pack(side="top", fill="x", **packKwargs)
 
         self.childIssueScrollFrame.ConfigureCanvas()
 
-class ChildItemFrame(ParentItemFrame):
-    def __init__(self, parent, jira, jiraItem, handler, width=300, height=100, *args, **kwargs):
-        ParentItemFrame.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
+class ChildItemCard(ParentItemCard):
+    def __init__(self, parent, jira, jiraItem, handler, width=300, height=110, *args, **kwargs):
+        ParentItemCard.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
 
-        self.statusChangeCanvas = Canvas(self, height=20, width=20, bg="pink")
+        self.statusChangeCanvas = Canvas(self, height=20, width=20, bd=0)
         self.statusCreatedImage = None
-        self.statusChangeCanvas.place(x=228, y=7, height=20, width=20)
+        self.statusChangeCanvas.place(x=145, y=6, height=20, width=20)
+
+        self.progressVar = StringVar()
+        self.progressVar.set("-")
+        self.progressInfoLabel = Label(self, height=2, width=15, bg="grey75", relief="sunken", bd=2, textvariable=self.progressVar)
+        self.progressInfoLabel.place(x=175, y=60)
 
         self.toggle = ToggleElement(self)
         self.toggle.AddControl(self)
         self.toggle.AddControl(self.typeCanvas)
-        self.toggle.AddControl(self.summaryLabel)
+        self.toggle.AddControl(self.summaryLabel, RGB(75, 220, 220))
         self.toggle.AddControl(self.keyLabel)
         self.toggle.AddControl(self._assigneLabel)
         self.toggle.AddControl(self._reporterLabel)
         self.toggle.AddControl(self.assigneeLabel)
         self.toggle.AddControl(self.reporterLabel)
+        self.toggle.AddControl(self.statusChangeCanvas)
         self.toggle.SelectControl()
 
 
@@ -619,20 +654,13 @@ class ChildItemFrame(ParentItemFrame):
         if self.statusCreatedImage is not None:
             self.statusChangeCanvas.delete(self.statusCreatedImage)
 
+        self.progressVar.set("Creating Test Case")
+
         itemKey = f"TC - {self.item.summary}"
         description = f"Test case for cycle: {epicItem.key} - \"{epicItem.summary}\"\nOriginal Description:\n{self.item.description}"
 
         fields = {
-            "project": {"key": CycleInspectorFrame.selectedProjectKey},
-            "issuetype": {"Test"},
-            "parent": {"key:": epicItem.key, "id": str(epicItem.id)},
-            "summary": itemKey,
-            "priority": {"name": "High"},
-            "description": description,
-        }
-
-        fields = {
-            "project": {"key": CycleInspectorFrame.selectedProjectKey},
+            "project": {"key": self.item.projectKey},
             "parent": {"key:": epicItem.key, "id": str(epicItem.id)},
             "issuetype": {"name": "Test"},
             "summary": itemKey,
@@ -652,6 +680,7 @@ class ChildItemFrame(ParentItemFrame):
             return
         
         childItem = Item(returnObject[1])
+        self.progressVar.set("Test Case Created.\nLinking Issues")
         
         self.handler.AsyncWork(
             JiraAgent.LinkClonedIssue,
@@ -663,13 +692,11 @@ class ChildItemFrame(ParentItemFrame):
         
     def Callback_LinkIssues(self, returnObject):
         if not returnObject[0]:
+            self.progressVar.set("Error")
             self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=Item.errorImage)
         else:
+            self.progressVar.set("Success!")
             self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=Item.successImage)
-
-            
-
-        
 
     def AddToRightClick(self):
         self.rightClickMenu.add_command(label="Test Func", command=self.Handle_TestFun)

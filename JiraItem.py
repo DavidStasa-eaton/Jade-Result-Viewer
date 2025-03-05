@@ -42,8 +42,8 @@ class JiraItem:
         self.assignee = self.fields["assignee"]
         self.assignee = "No One" if self.assignee is None else self.assignee["displayName"]
 
-class ItemFrame(Frame):
-    def __init__(self, parent:Frame, jira:Jira, jiraItem:JiraItem, handler:AsyncHandler, width=300, height=100, *args, **kwargs):
+class ItemCard(Frame):
+    def __init__(self, parent:Frame, jira:Jira, jiraItem:JiraItem, handler:AsyncHandler, width=300, height=110, *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
         self.parent = parent
         self.jira = jira
@@ -69,10 +69,10 @@ class ItemFrame(Frame):
         #self.statusChangeCanvas.place(x=228, y=7, height=20, width=20)
 
         self.keyLabel = Label(self, text=self.item.key, relief="ridge", bd=2)
-        self.keyLabel.place(x=23, y=6, width=100)
+        self.keyLabel.place(x=23, y=6, width=120)
 
         self.summaryLabel = Label(self, text=self.item.summary, relief="sunken", bd=2, bg="grey75")
-        self.summaryLabel.place(x=3, y=35, width=width-4)
+        self.summaryLabel.place(x=3, y=35, width=width-8)
 
         self._reporterLabel = Label(self, text="Reporter:")
         self._reporterLabel.place(x=3, y=60, width=50)
