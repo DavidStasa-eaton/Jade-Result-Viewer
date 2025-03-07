@@ -56,6 +56,7 @@ class ProjectViewerFrame(Frame):
 
         self.childInspecter = CycleInspectorFrame(self, self.handler, self.jira, self.GetLoadedProject)
         self.childInspecter.pack(side="left", fill="y", **packKwargs)
+        self.inspector.SubscribeProjectItemSelectedEvent(self.childInspecter.AdoptChildren)
 
         #self.testButton = Button(self, text="Test", command=self.Click_TestButton)
         #self.testButton.pack()
@@ -237,6 +238,15 @@ class ProjectInspecterFrame(Frame):
 
         self.typesSelected:List[str] = []
 
+        self.projectItemSelectedEvents:List[Callable[[], List[Item]]] = []
+
+    def SubscribeProjectItemSelectedEvent(self, func:Callable[[], List[Item]]):
+        self.projectItemSelectedEvents.append(func)
+    
+    def CallProjectItemSelectedEvent(self, items:List[Item]):
+        for func in self.projectItemSelectedEvents:
+            func(items)
+
     def ChangeLoadedProject(self, key:str, info:Project):
         self.info = info
 
@@ -288,6 +298,7 @@ class ProjectInspecterFrame(Frame):
         for issueDict in returnObject[1]["issues"]:
             item = Item(issueDict)
             temp = ProjectItemCard(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
+            temp.SubscribeToGetChildrenEvent(self.CallProjectItemSelectedEvent)
             temp.pack(side="top", fill="x", **packKwargs)
 
 class ProjectSelectCard(Frame):
@@ -467,10 +478,19 @@ class ProjectItemCard(ParentItemCard):
         self.toggle.Subscribe(self.Handle_Toggle)
 
         self.AddToRightClick()
+        self.lastChildIssues:List[Item] = []
+
+        self.getChildrenEvents:List[Callable[[], List[Item]]] = []
+
+    def SubscribeToGetChildrenEvent(self, func:Callable[[], List[Item]]):
+        self.getChildrenEvents.append(func)
 
     def Handle_Toggle(self, frame:ProjectItemCard, isActive:bool):
         if isActive:
             self.Handle_GetChildren()
+        else:
+            pass
+
 
     def AddToRightClick(self):
         self.rightClickMenu.add_command(label="Get Children", command=self.Handle_GetChildren)
@@ -490,7 +510,10 @@ class ProjectItemCard(ParentItemCard):
         
         values = returnObject[1]["issues"]
         childIssues = [Item(issue) for issue in values if issue["key"] != self.item.key]
-        CycleInspectorFrame.instance.AdoptChildren(childIssues)
+        self.lastChildIssues = childIssues
+        for func in self.getChildrenEvents:
+            func(childIssues)
+        #CycleInspectorFrame.instance.AdoptChildren(childIssues)
 
 class CycleInspectorFrame(Frame):
     instance:CycleInspectorFrame = None
@@ -558,6 +581,7 @@ class CycleInspectorFrame(Frame):
             "project": {"key": self.GetLoadedProject().key},
             "issuetype": {"name": "Epic"},
             "summary": self.cycleNameVar.get(),
+            "labels": ["TestCycle"],
             "description": f"Testing cycle with {len(self.childItems)} item(s).",
         }
 
