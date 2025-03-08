@@ -617,7 +617,7 @@ class ScrollFrame(Frame):
         except IndexError:
             horzRegion = None
             vertRegion = None
-        if self.packFrame.winfo_reqheight() != vertRegion or self.packFrame.winfo_reqwidth != horzRegion:
+        if self.packFrame.winfo_reqheight() != vertRegion or self.packFrame.winfo_reqwidth() != horzRegion:
             self.packFrame.update_idletasks()
             size = (2, self.packFrame.winfo_reqheight())
             self.canvas.config(scrollregion=(0,0,size[0], size[1]))
@@ -1326,14 +1326,6 @@ def GetElements(myFrame, firstCall = True, otherDict=None, myDict={}):
     for item in myFrame.winfo_children():
         if item.winfo_class() == "Frame":             #Frame
             GetElements(item, False, myDict=myDict)
-            '''
-            elif item.winfo_class() == "Label":         #Label
-                #myLabel = re.sub(r".*\.","", str(item))
-                pass
-            elif item.winfo_class() == "Button":         #Button
-                #myLabel = re.sub(r".*\.","", str(item))
-                pass
-            '''
         elif item.winfo_class() == "Radiobutton":    #Radiobutton
             try:
                 myLabel = str(item.cget("variable"))

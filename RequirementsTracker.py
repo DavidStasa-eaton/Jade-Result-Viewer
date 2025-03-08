@@ -11,8 +11,12 @@ import threading
 import time
 
 from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseBool, Button_WorkStart
-from JiraControls import JiraFrame, IssueFrame, CreateBugFrame, JiraAgent
+#from JiraControls import JiraFrame, IssueFrame, CreateBugFrame, JiraAgent, JiraCredentialsFrame
+from JiraControls import CreateBugFrame
+from JiraItem import ItemCard, JiraItem
 from ResultFiles import ResultFile, TableFrame, JadeTableResult, ResultFrame
+from AsyncHandler import AsyncHandler
+import JiraAgent
 #from ProjectExplorer import ProjectViewerFrame
 
 configPath = "JadeResultParserConfig.txt"
@@ -20,57 +24,35 @@ configPath = "JadeResultParserConfig.txt"
 Button.WorkStart = Button_WorkStart
 Button.Parsebool = Button_ParseBool
 
-class MainUI(Toplevel):
+class ReqTrackerUI(Frame):
     instance = None
-    def __init__(self, tk:Tk, *args, **kwargs):
-        Toplevel.__init__(self, tk, *args, **kwargs)
+    def __init__(self, tk:Tk, handler:AsyncHandler, *args, **kwargs):
+        Frame.__init__(self, tk, *args, **kwargs)
+        self.handler = handler
 
-        self.masterMenu = Menu(self)
-
-        self.jiraMenu = Menu(self.masterMenu, tearoff=0)
-        self.jiraMenu.add_command(label="Create Regression Epic", command=self.TempFunc)
-
-        self.masterMenu.add_cascade(label="Jira", menu=self.jiraMenu)
-
-        self.config(menu=self.masterMenu)
-
-        self.title("Result Viewer and Jira Uploader")
-
-        IssueFrame.PopulateImages()
-
-        MainUI.instance = self
-
-        self.noteBook = ttk.Notebook(self)
-        self.noteBook.pack(side='top', fill="both", expand=True)
+        
+        ReqTrackerUI.instance = self
 
         #################################################################################
         #####################    Tab 1 - Single File Viewer    ##########################
         #################################################################################
 
         self.singleResultFrame = Frame(self)
-        self.noteBook.add(self.singleResultFrame, text="File Viewer")
+        self.singleResultFrame.pack(side="top", fill="both", expand=True)
+        #self.noteBook.add(self.singleResultFrame, text="File Viewer")
         
-        self.ioFrame = IOFrame(self.singleResultFrame)
+        self.ioFrame = IOFrame(self.singleResultFrame, self.handler)
         self.ioFrame.pack(side="left", anchor='n', fill="y")
         self.ioFrame.fileSelectedEvents.append(self.Handle_FileSelected)
 
         self.parentJiraFrame = Frame(self.singleResultFrame)
-        self.jiraFrame = JiraFrame(self.parentJiraFrame)
+        self.jiraFrame = SingleFileJiraFrame(self.parentJiraFrame, self.handler)
         #self.bugFrame = CreateBugFrame(self.parentJiraFrame)
 
         self.resultFrame = ResultViewerFrame(self.singleResultFrame)
         self.resultFrame.pack(side="left", fill="both", expand=True)
 
         self.parentJiraFrame.pack(side="left", fill="both")
-
-        #################################################################################
-        #####################     Tab 2 - Project Explorer     ##########################
-        #################################################################################
-
-        #self.projectExplorer = ProjectViewerFrame(self)
-        #self.noteBook.add(self.projectExplorer, text="Project Explorer")
-
-
 
         if JiraAgent.jiraImported:
             self.LoadJiraElements()
@@ -109,16 +91,15 @@ class MainUI(Toplevel):
 
         restoreDict = json.loads(fileText)
 
-        if JiraAgent.jiraImported:
-            self.jiraFrame.RestoreElements(restoreDict.get("jira", None))
         self.ioFrame.RestoreElements(restoreDict.get("io", None))
 
         if JiraAgent.jiraImported:
             self.after(1000, self.jiraFrame.StartJiraComms)
             
 class IOFrame(Frame):
-    def __init__(self, parent:Frame, *args, **kwargs):
+    def __init__(self, parent:Frame, handler:AsyncHandler, *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
+        self.handler = handler
 
         self.selectedParentFile = ""
         self.fileToLoad = ""
@@ -168,19 +149,7 @@ class IOFrame(Frame):
         self.parseThread = None
         self.parseQueue = Queue()
         self.uiQueue = Queue()
-        
-        self.UI_Async_Loop()
-
-    def Handle_ResultFileSelected(self, event=None):
-        temp = self.selectFileListBox.curselection()
-        if len(temp) == 0:
-            return
-        
-        self.fileToLoad = self.selectFileListBox.get(temp[0])
-
-        for func in self.fileSelectedEvents:
-            func(self.fileDictList[self.selectedParentFile][temp[0]])
-
+    
     def Handle_ParentFileSelected(self, event=None):
         temp = self.availableFilesListBox.curselection()
         if len(temp) == 0:
@@ -215,7 +184,7 @@ class IOFrame(Frame):
 
 
         for tf in textFiles:
-            rFile = ResultFile(self.resultDirVar.get(), tf, MainUI.instance.resultFrame)
+            rFile = ResultFile(self.resultDirVar.get(), tf, ReqTrackerUI.instance.resultFrame)
 
             if rFile.coreFileName in self.fileDictList:
                 self.fileDictList[rFile.coreFileName].append(rFile)
@@ -250,24 +219,14 @@ class IOFrame(Frame):
             rFile:ResultFile
 
             rFile.parser.ParseResultFile()
-        self.Async_UI_Call(self.DoneParsingResultDir)
+        self.handler.AsyncUiCall(self.DoneParsingResultDir, None)
 
-    def Async_UI_Call(self, func, *args, **kwargs):
-        self.uiQueue.put([func, args, kwargs])
-
-    def UI_Async_Loop(self):
-        if not self.uiQueue.empty():
-            [func, args, kwargs] = self.uiQueue.get()
-            func(*args, **kwargs)
-
-        self.after(100, self.UI_Async_Loop)
-
-    def DoneParsingResultDir(self):
+    def DoneParsingResultDir(self, _):
         self.availableFilesListBox.config(state="normal")
         self.Handle_ParentFileSelected()
 
     def Click_ResultFileFrame(self, resultFile:ResultFile):
-        MainUI.instance.resultFrame.LoadResultFile(resultFile)
+        ReqTrackerUI.instance.resultFrame.LoadResultFile(resultFile)
 
     def PopulateChildFiles(self, fileKeys:List[str]):
         self.resultFilesScrollFrame.ClearControls_Pack()
@@ -496,6 +455,175 @@ class ResultViewerFrame(Frame):
         lineInfo = self.text.dlineinfo(textIndex)
         self.text.yview_scroll(lineInfo[1]-20, "pixels")
 
+class SingleFileJiraFrame(Frame):
+    instance:SingleFileJiraFrame = None
+    def __init__(self, parent:Frame, handler:AsyncHandler, *args, **kwargs):
+        Frame.__init__(self, parent, *args, **kwargs)
+        self.handler = handler
+
+        self.inputFilePath:str = ""
+
+        self.tablesScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
+        self.tablesScrollFrame.packFrame.config(bg="grey55")
+        #self.tablesScrollFrame.grid(row=0, column=0, sticky="wens")
+        self.tablesScrollFrame.pack(side="top", fill="both", expand=True)
+        self.tablesScrollFrame.hScroll.grid_forget()
+        self.tablesScrollFrame.ConfigureCanvas(overrideWidth=400)
+
+        Button(self, text="Test", command=self.Click_TestFunc).pack(side='bottom')
+
+        ##################################################################################################################
+        ####################################                Bug Frame              #######################################
+        ##################################################################################################################
+        
+        self.bugFrame = CreateBugFrame(self, bd=3, relief="groove")
+        
+    def GetJiraIssue(self, key:str) -> Tuple[str, Dict[str, Any]]:
+        if not JiraAgent.jiraImported:
+            return {
+                "key": key,
+                "fields": {}
+            }
+        
+        (success, issueDict) = JiraAgent.GetJiraItem(self.jira, key)
+
+        if not success:
+            return {
+                "key": key,
+                "fields": {}
+            }
+
+        return issueDict
+
+    def Callback_ResultFileLoaded(self, inputFilePath:str, resultFilePath:str, results:List[JadeTableResult]):
+        """Subscribed from ResultViewerer frame. Will be called when a new result file is loaded. Will ascychroniously load each jira issue found in the result files. 
+
+        Args:
+            results (List[TableResult]): List of all the TableResults parsed in the results file
+        """
+        self.inputFilePath = inputFilePath
+        self.resultFilePath = resultFilePath
+        for child in self.tablesScrollFrame.packFrame.winfo_children():
+            child:Frame
+            child.pack_forget()
+            child.destroy()
+
+        uniqueReqs:List[str] = []
+        for r in results:
+            for req in r.reqs:
+                if req not in uniqueReqs:
+                    uniqueReqs.append(req)
+
+        for req in uniqueReqs:
+            self.handler.AsyncWork(self.GetJiraIssue, self.AddIssueCard, req)
+
+        self.jira = JiraAgent.CreateStaticJiraInstance()
+
+    def AddIssueCard(self, issueInfo:Dict[str, Any]):
+        """Add a card for a jira issue. 
+
+        Args:
+            issueInfo (Dict[str, Any]): keys will be "key" and "issueDict"
+        """
+        item = JiraItem(issueInfo)
+
+        temp = JiraItemCard(self.tablesScrollFrame.packFrame, self.jira, item, self.handler, self.inputFilePath, self.resultFilePath)
+        temp.pack(side="top", fill="both", expand=True, pady=3, padx=3)
+
+        self.tablesScrollFrame.ConfigureCanvas(overrideWidth=400)
+
+    def Click_TestFunc(self):
+        #
+        # TEST FUNCTION - CAN BE FREELY OVERWRITTEN
+        #
+        #fields = {
+        #    "project": {"key": "MT"},
+        #    "issuetype": {"name": "Test"},
+        #    "parent": {"key:": "MT-1613", "id": "8175273"},
+        #    "summary": "Test Case From Automation With Parent 2",
+        #    "priority": {"name": "High"},
+        #    "description": "Test descriptoin from automation.\nTroubleshooting here",
+        #}
+
+        #[success, bugInfo] = JiraAgent.CreateBug(self.jira, fields)
+        #print(bugInfo)
+
+        xray = JiraAgent.GetXrayInstance()
+
+        print(JiraAgent.TestFunc(xray, "MT-1618"))
+
+    #region Async Threads and UI Loops
+    def StartJiraComms(self):
+        self.jira = JiraAgent.CreateStaticJiraInstance()
+    #endregion __ Async Threads and UI Loops __
+
+    def SaveElements(self) -> Dict[str, Any]:
+        return {}
+    
+    def RestoreElements(self, rDict:Dict[str, Any]):
+        if rDict is None:
+            return
+
+class JiraItemCard(ItemCard):
+    def __init__(self, parent, jira, jiraItem, handler, inputFilePath:str, outputFilePath:str, width=300, height=110, *args, **kwargs):
+        ItemCard.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
+        self.inputFilePath = inputFilePath
+        self.outputFilePath = outputFilePath
+
+        self.transitionCombo = ttk.Combobox(self, values=[], state="normal")
+        self.transitionCombo.place(x=150, y=7, width=100)
+        self.transitionCombo.bind("<<ComboboxSelected>>", self.Handle_ChangeStatus)
+
+        self.statusChangeCanvas = Canvas(self, height=20, width=20, bd=0)
+        self.statusCreatedImage = None
+        self.statusChangeCanvas.place(x=250, y=6, height=20, width=20)
+
+        self.uploadButton = Button(self, text="Upload\nFiles", command=self.Click_UploadButton)
+        self.uploadButton.place(x=232, y=62, width=60)
+
+    def Handle_ChangeStatus(self, event=None):
+        self.transitionCombo.config(state="disabled")
+        value = self.transitionCombo.get()
+        if self.statusCreatedImage is not None:
+            self.statusChangeCanvas.delete(self.statusCreatedImage)
+        self.handler.AsyncWork(
+            JiraAgent.SetIssueStatus, 
+            self.Callback_ChangeStatus,
+            self.jira, 
+            self.item.key, 
+            value
+        )
+
+    def Callback_ChangeStatus(self, returnObject):
+        if not returnObject[0]:
+            self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=JiraItem.errorImage)
+        else:
+            self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=JiraItem.successImage)
+
+        self.transitionCombo.config(state="normal")
+
+    def Click_UploadButton(self):
+        self.uploadButton.WorkStart()
+        self.handler.AsyncWork(
+            JiraAgent.AttachFile, 
+            None,
+            self.jira,  
+            self.item.key, 
+            self.outputFilePath
+        )
+
+        self.handler.AsyncWork(
+            JiraAgent.AttachFile, 
+            self.Callback_UpdateButton,
+            self.jira, 
+            self.item.key, 
+            self.inputFilePath
+        )
+        #print(MainUI.instance.resultFrame.selectedResultFile.absolutePath)
+
+    def Callback_UpdateButton(self, returnObject):
+        self.uploadButton.ParseBool(type(returnObject[0]) != tuple)
+
 def MainExitCall():
 
     mw.SaveElements()
@@ -504,7 +632,7 @@ def MainExitCall():
 if __name__ == "__main__":
     tk = Tk()
 
-    mw = MainUI(tk)
+    mw = ReqTrackerUI(tk)
 
     tk.withdraw()
 

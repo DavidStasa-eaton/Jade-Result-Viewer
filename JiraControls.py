@@ -11,6 +11,7 @@ import threading
 import time
 
 from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseBool, Button_WorkStart
+from AsyncHandler import AsyncHandler
 
 import JiraAgent as JiraAgent
 
@@ -25,26 +26,11 @@ Button.Parsebool = Button_ParseBool
 
 class JiraFrame(Frame):
     instance:JiraFrame = None
-    def __init__(self, parent:Frame, *args, **kwargs):
+    def __init__(self, parent:Frame, handler:AsyncHandler, *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)
-
-        self.userFrame = Frame(self)
-        self.userFrame.pack(side="top", fill="x")
-        self.userFrame.columnconfigure(1, weight=1)
+        self.handler = handler
 
         self.inputFilePath:str = ""
-
-        Label(self.userFrame, text="User").grid(
-            row=0, column=0, sticky="wens"
-        )
-
-        self.userVar = StringVar()
-        self.userVar.trace_add("write", self.Handle_UserNameChanged)
-        self.userEntry = Entry(self.userFrame, textvariable=self.userVar)
-        self.userEntry.grid(row=0, column=1, **gridKwargs)
-
-        self.enterTokenButton = Button(self.userFrame, text="Enter Token", command=self.Click_HandleToken)
-        self.enterTokenButton.grid(row=1, column=0, columnspan=2, **gridKwargs)
 
         self.tablesScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
         self.tablesScrollFrame.packFrame.config(bg="grey55")
@@ -54,14 +40,6 @@ class JiraFrame(Frame):
         self.tablesScrollFrame.ConfigureCanvas(overrideWidth=500)
 
         Button(self, text="Test", command=self.Click_TestFunc).pack(side='bottom')
-
-        self.userToken = None
-
-        self.jiraQueue = Queue()
-        self.uiQueue = Queue()
-
-        self.jiraThread = threading.Thread(target=self.JiraThread)
-        self.jiraThread.daemon = True
 
         ##################################################################################################################
         ####################################                Bug Frame              #######################################
@@ -109,7 +87,9 @@ class JiraFrame(Frame):
                     uniqueReqs.append(req)
 
         for req in uniqueReqs:
-            self.AsyncFunctionCall(self.GetJiraIssue, self.AddIssueCard, req)
+            self.handler.AsyncWork(self.GetJiraIssue, self.AddIssueCard, req)
+
+        self.jira = JiraAgent.CreateStaticJiraInstance()
 
     def AddIssueCard(self, issueInfo:Dict[str, Any]):
         """Add a card for a jira issue. 
@@ -148,73 +128,61 @@ class JiraFrame(Frame):
 
         print(JiraAgent.TestFunc(xray, "MT-1618"))
 
-    def Handle_UserNameChanged(self, *args):
-        JiraAgent.userName = self.userVar.get()
-
-    def Click_HandleToken(self):
-        results = simpledialog.askstring("Enter Token String", "Enter the token generated from Jira for your account.")
-        
-        if results is None:
-            return
-        
-        self.userToken = results
-        JiraAgent.TOKEN = self.userToken
-
     #region Async Threads and UI Loops
     def StartJiraComms(self):
-        if self.userVar.get() == "" or self.userToken == "":
-            print(self.userVar.get())
-            print(self.userToken)
-            # handle user inputs not given. 
-            return
-        
         self.jira = JiraAgent.CreateStaticJiraInstance()
-        self.jiraThread.start()
-
-        self.UI_Loop()
-
-    def AsyncFunctionCall(self, func:Callable, callBack:Callable=None, *args, **kwargs):
-        self.jiraQueue.put([func, callBack, args, kwargs])
-
-    def Async_UI_Call(self, func:Callable, returnObject:Any):
-        self.uiQueue.put([func, returnObject])
-
-    def JiraThread(self):
-        while True:
-            if not self.jiraQueue.empty():
-                [func, callback, args, kwargs] = self.jiraQueue.get()
-
-                returnObject = func(*args, **kwargs)
-
-                if callback is not None:
-                    self.Async_UI_Call(callback, returnObject)
-
-            time.sleep(0.100)
-
-    def UI_Loop(self):
-        if not self.uiQueue.empty():
-            [func, returnObject] = self.uiQueue.get()
-
-            func(returnObject)
-
-
-        self.after(100, self.UI_Loop)
-
     #endregion __ Async Threads and UI Loops __
 
     def SaveElements(self) -> Dict[str, Any]:
-        return {
-            "user": self.userVar.get(),
-            "token": self.userToken
-        }
+        return {}
     
     def RestoreElements(self, rDict:Dict[str, Any]):
         if rDict is None:
             return
+
+class JiraCredentialsFrame(Frame):
+    def __init__(self, parent:Frame, *args, **kwargs):
+        Frame.__init__(self, parent, *args, **kwargs)
         
-        self.userVar.set(rDict.get("user", ""))
-        self.userToken = rDict.get("token", None)
-        JiraAgent.TOKEN = self.userToken
+        Label(self, text="User Name:", relief="sunken", bg="grey75", bd=2).pack(
+            side="top", fill="x", **packKwargs
+        )
+        
+        self.userVar = StringVar()
+        self.userVar.set(JiraAgent.GetStoredUserName())
+        self.userVar.trace_add("write", self.Handle_UserNameChanged)
+        self.userEntry = Entry(self, textvariable=self.userVar)
+        self.userEntry.pack(side="top", fill="x", **packKwargs)
+
+        Label(self, text="Enter new user Token below and\nclick the \"Enter Token\" button", relief="sunken", bg="lightyellow", bd=2).pack(
+            side="top", fill="x", **packKwargs
+        )
+
+        self.userTokenText = Text(self, wrap="char")
+        self.userTokenText.pack(side="top", fill="both", expand=True, **packKwargs)
+
+        self.enterTokenButton = Button(self, text="Enter Token", command=self.Click_HandleToken)
+        self.enterTokenButton.pack(side="top", fill="x", **packKwargs)
+
+        self.CredentialsChangedEvent:List[Callable[[str, str], None]] = []
+
+    def Subscribed(self, func:Callable[[str, str], None]):
+        self.CredentialsChangedEvent.append(func)
+
+    def Handle_UserNameChanged(self, *args):
+        JiraAgent.UpdateStoredCredentials(self.userVar.get())
+
+        for func in self.CredentialsChangedEvent:
+            func(self.userVar.get(), None)
+
+    def Click_HandleToken(self):
+        newToken = self.userTokenText.get("1.0", END)
+        JiraAgent.UpdateStoredCredentials(self.userVar.get(), newToken)
+
+        for func in self.CredentialsChangedEvent:
+            func(self.userVar.get(), newToken)
+
+        self.userTokenText.delete("1.0", END)
 
 class IssueFrame(Frame):
     RequiredHeight = 100
@@ -347,7 +315,7 @@ class IssueFrame(Frame):
         self.rightClickMenu.add_command(label="LinkIssue", command=self.MenuClick_LinkIssue)
 
     def MenuClick_SaveInfo(self, event=None):
-        self.jiraFrame.AsyncFunctionCall(
+        self.jiraFrame.handler.AsyncWork(
             JiraAgent.WriteIssueToFile, 
             None,
             self.jiraFrame.jira, 
@@ -363,7 +331,7 @@ class IssueFrame(Frame):
         
         print(results)
         
-        self.jiraFrame.AsyncFunctionCall(
+        self.jiraFrame.handler.AsyncWork(
             JiraAgent.LinkClonedIssue, 
             None,
             self.jiraFrame.jira, 
@@ -392,7 +360,7 @@ class IssueFrame(Frame):
         value = self.transitionCombo.get()
         if self.statusCreatedImage is not None:
             self.statusChangeCanvas.delete(self.statusCreatedImage)
-        self.jiraFrame.AsyncFunctionCall(
+        self.jiraFrame.handler.AsyncWork(
             JiraAgent.SetIssueStatus, 
             self.Callback_ChangeStatus,
             self.jiraFrame.jira, 
@@ -412,7 +380,7 @@ class IssueFrame(Frame):
         self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=temp)
 
     def GetTransitions(self):
-        self.jiraFrame.AsyncFunctionCall(
+        self.jiraFrame.handler.AsyncWork(
             JiraAgent.GetIssueTransitions, 
             self.Callback_GetTransitions,
             self.jiraFrame.jira, 
@@ -434,7 +402,7 @@ class IssueFrame(Frame):
 
     def Click_UploadButton(self):
         self.uploadButton.WorkStart()
-        self.jiraFrame.AsyncFunctionCall(
+        self.jiraFrame.handler.AsyncWork(
             JiraAgent.AttachFile, 
             None,
             self.jira,  
@@ -442,7 +410,7 @@ class IssueFrame(Frame):
             self.outputFilePath
         )
 
-        self.jiraFrame.AsyncFunctionCall(
+        self.jiraFrame.handler.AsyncWork(
             JiraAgent.AttachFile, 
             self.Callback_UpdateButton,
             self.jira, 
@@ -544,7 +512,7 @@ class CreateBugFrame(Frame):
         [success, bugInfo] = JiraAgent.CreateItem(self.issueFrame.jiraFrame.jira, fields)
 
         if not success:
-            print("\n\n\Failed to create bug\n\n")
+            print("\n\nFailed to create bug\n\n")
             return
         
         createBugKey = bugInfo["key"]

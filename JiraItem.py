@@ -108,23 +108,6 @@ class ItemCard(Frame):
             self.item.key,
             False
         )
-        
-    def Handle_ChangeStatus(self, event=None):
-        self.transitionCombo.config(state="disabled")
-        value = self.transitionCombo.get()
-        if self.statusCreatedImage is not None:
-            self.statusChangeCanvas.delete(self.statusCreatedImage)
-        self.handler.AsyncWork(
-            JiraAgent.SetIssueStatus, 
-            self.Callback_ChangeStatus,
-            self.jira, 
-            self.item.key, 
-            value
-        )
-
-    def Callback_ChangeStatus(self, returnObject):
-        self.transitionCombo.config(state="normal")
-        
 
         #if returnObject[0]:
         #    temp = IssueFrame.successImage
@@ -132,9 +115,6 @@ class ItemCard(Frame):
         #    temp = IssueFrame.errorImage
 
         #self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=temp)
-
-
-
 
 class JiraType:
     @staticmethod

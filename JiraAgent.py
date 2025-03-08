@@ -17,22 +17,53 @@ except ImportError:
 
 import atlassian
 
-TOKEN = ""
+configPath = "JiraCreds.txt"
 
 serverAddress = "https://eaton-corp.atlassian.net/"
-userName = ""
 
 global jiraInstance
 jiraInstance = None
 
 #linkedissue = DIGTOOLS-64
 
+def UpdateStoredCredentials(userName:str=None, newToken:str=None):
+    if os.path.exists(configPath):
+        with open(configPath, "r") as cFile:
+            data = json.loads(cFile.readline())
+    else:
+        data = {"user": "", "token": ""}
+
+    if userName is not None:
+        data["user"] = userName
+
+    if newToken is not None:
+        data["token"] = newToken
+
+    with open(configPath, "w") as cFile:
+        cFile.write(json.dumps(data))
+
+def GetStoredToken() -> str:
+    if not os.path.exists(configPath):
+        return ""
+    
+    with open(configPath, "r") as cFile:
+        data = json.loads(cFile.readline())
+        return data.get("token", "")
+    
+def GetStoredUserName() -> str:
+    if not os.path.exists(configPath):
+        return ""
+    
+    with open(configPath, "r") as cFile:
+        data = json.loads(cFile.readline())
+        return data.get("user", "")
+
 def GetJiraInstance(createStaticInstant:bool=True) -> Jira:
     global jiraInstance
     jiraOptions = {"server": serverAddress, "verify": True}
     j = Jira(serverAddress,
-            username=userName,
-            password=TOKEN, verify_ssl=False)
+            username=GetStoredUserName(),
+            password=GetStoredToken(), verify_ssl=False)
     if createStaticInstant:
         jiraInstance = j
     return j
@@ -46,8 +77,8 @@ def CreateStaticJiraInstance() -> Jira:
 def GetXrayInstance() -> Jira:
     jiraOptions = {"server": serverAddress, "verify": True}
     x = Xray(serverAddress,
-            username=userName,
-            password=TOKEN, verify_ssl=False)
+            username=GetStoredUserName(),
+            password=GetStoredToken(), verify_ssl=False)
     return x
 
 def WriteDictToFile(dictToWrite:Dict[Any, Any], fileName="JiraStuff.txt"):

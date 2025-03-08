@@ -755,9 +755,6 @@ def RestoreJiraElements():
         restoreDict = json.loads(fileText)
         restoreDict = restoreDict["jira"]
 
-        JiraAgent.userName = restoreDict.get("user", "")
-        JiraAgent.TOKEN = restoreDict.get("token", None)
-
 if __name__ == "__main__":
     tk = Tk()
 
