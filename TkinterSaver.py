@@ -1140,6 +1140,12 @@ class ToggleElement:
     def Subscribe(self, func:Callable[[Tk, bool], None]):
         self.ClickEvent.append(func)
 
+    def AddControlAndAllChildren(self, control:Tk, selectColor:str=None, deselectColor:str=None):
+        self.AddControl(control, selectColor, deselectColor)
+
+        for child in control.winfo_children():
+            self.AddControl(child, selectColor, deselectColor)
+
     def AddControl(self, control:Tk, selectColor:str=None, deselectColor:str=None):
         """Add control that will bind to <Button-1> and change format based on click status.
 

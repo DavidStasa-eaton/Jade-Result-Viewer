@@ -37,10 +37,17 @@ class JiraItem:
 
         self.description = self.fields["description"]
         self.summary = self.fields["summary"]
+        self.status = self.fields["status"]["name"]
 
         self.reporter = self.fields["reporter"]["displayName"]
         self.assignee = self.fields["assignee"]
         self.assignee = "No One" if self.assignee is None else self.assignee["displayName"]
+
+    def GetParentInfo(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "key": self.key
+        }
 
 class ItemCard(Frame):
     def __init__(self, parent:Frame, jira:Jira, jiraItem:JiraItem, handler:AsyncHandler, width=300, height=110, *args, **kwargs):
@@ -88,6 +95,12 @@ class ItemCard(Frame):
         self.bind("<Button-3>", self.Handle_RightClick)
         self.CreateRightClickMenu()
 
+    def DeplaceLabels(self, *args:List[Label]):
+        for label in args:
+            label:Label
+            label.place_forget()
+
+
     def Handle_RightClick(self, event):
         try:
             self.rightClickMenu.tk_popup(event.x_root, event.y_root)
@@ -108,13 +121,6 @@ class ItemCard(Frame):
             self.item.key,
             False
         )
-
-        #if returnObject[0]:
-        #    temp = IssueFrame.successImage
-        #else:
-        #    temp = IssueFrame.errorImage
-
-        #self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=temp)
 
 class JiraType:
     @staticmethod

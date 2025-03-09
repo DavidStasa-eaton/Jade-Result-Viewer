@@ -11,7 +11,6 @@ import threading
 import time
 
 from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseBool, Button_WorkStart
-#from JiraControls import JiraFrame, IssueFrame, CreateBugFrame, JiraAgent, JiraCredentialsFrame
 from JiraControls import CreateBugFrame
 from JiraItem import ItemCard, JiraItem
 from ResultFiles import ResultFile, TableFrame, JadeTableResult, ResultFrame
@@ -19,7 +18,7 @@ from AsyncHandler import AsyncHandler
 import JiraAgent
 #from ProjectExplorer import ProjectViewerFrame
 
-configPath = "JadeResultParserConfig.txt"
+
 
 Button.WorkStart = Button_WorkStart
 Button.Parsebool = Button_ParseBool
@@ -57,9 +56,6 @@ class ReqTrackerUI(Frame):
         if JiraAgent.jiraImported:
             self.LoadJiraElements()
 
-
-        self.RestoreElements()
-
     def LoadJiraElements(self):
         self.jiraFrame.pack(side="top", fill="both", expand=True)
         #self.noteBook.add(self.jiraFrame, "Jira")
@@ -78,19 +74,11 @@ class ReqTrackerUI(Frame):
             "jira": self.jiraFrame.SaveElements()
         }
 
-        jString = json.dumps(saveDict)
+        return saveDict
 
-        with open(configPath, "w") as configFile:
-            configFile.write(jString)
-
-    def RestoreElements(self):
-        if not os.path.exists(configPath):
-            return 
         
-        fileText = open(configPath, "r").readline()
 
-        restoreDict = json.loads(fileText)
-
+    def RestoreElements(self, restoreDict:Dict[str, Any]):
         self.ioFrame.RestoreElements(restoreDict.get("io", None))
 
         if JiraAgent.jiraImported:
@@ -115,8 +103,10 @@ class IOFrame(Frame):
         self.botFrame.rowconfigure(1, weight=1)
 
         self.resultDirVar = StringVar()
+        self.resultDirVar.trace_add("write", self.Trigger_ResultDirChanged)
         self.resultDirEntry = Entry(self.topFrame, textvariable=self.resultDirVar)
         self.resultDirEntry.pack(side="top", fill="x", anchor="w")
+        self.ResultDirChangedEvents:List[Callable[[str], None]] = []
 
         self.selectDirButton = Button(self.topFrame, text="Select Results Directory", command=self.Handle_SelectResultDir)
         self.selectDirButton.pack(side="top", fill="x")
@@ -149,6 +139,13 @@ class IOFrame(Frame):
         self.parseThread = None
         self.parseQueue = Queue()
         self.uiQueue = Queue()
+
+    def SubscribeToResultDirChangedEvent(self, func:Callable[[str], None]):
+        self.ResultDirChangedEvents.append(func)
+
+    def Trigger_ResultDirChanged(self, var1, var2, var3):
+        for func in self.ResultDirChangedEvents:
+            func(self.resultDirVar.get())
     
     def Handle_ParentFileSelected(self, event=None):
         temp = self.availableFilesListBox.curselection()
@@ -177,14 +174,13 @@ class IOFrame(Frame):
 
         if not os.path.exists(self.resultDirVar.get()):
             return
-
+        
         files = os.listdir(self.resultDirVar.get())
 
         textFiles = [f for f in files if f.endswith(".txt")]
 
-
         for tf in textFiles:
-            rFile = ResultFile(self.resultDirVar.get(), tf, ReqTrackerUI.instance.resultFrame)
+            rFile = ResultFile(self.resultDirVar.get(), tf)
 
             if rFile.coreFileName in self.fileDictList:
                 self.fileDictList[rFile.coreFileName].append(rFile)
@@ -264,7 +260,6 @@ class IOFrame(Frame):
         if restoreDict is None:
             return
         
-
         self.resultDirVar.set(restoreDict.get("resultDir", ""))
 
         self.PopulateFilesInDir()
@@ -476,7 +471,7 @@ class SingleFileJiraFrame(Frame):
         ####################################                Bug Frame              #######################################
         ##################################################################################################################
         
-        self.bugFrame = CreateBugFrame(self, bd=3, relief="groove")
+        self.bugFrame = CreateBugFrame(self, self.handler, bd=3, relief="groove")
         
     def GetJiraIssue(self, key:str) -> Tuple[str, Dict[str, Any]]:
         if not JiraAgent.jiraImported:
@@ -527,7 +522,7 @@ class SingleFileJiraFrame(Frame):
         """
         item = JiraItem(issueInfo)
 
-        temp = JiraItemCard(self.tablesScrollFrame.packFrame, self.jira, item, self.handler, self.inputFilePath, self.resultFilePath)
+        temp = JiraItemCard(self.tablesScrollFrame.packFrame, self.jira, item, self.handler, self.inputFilePath, self.resultFilePath, self.bugFrame)
         temp.pack(side="top", fill="both", expand=True, pady=3, padx=3)
 
         self.tablesScrollFrame.ConfigureCanvas(overrideWidth=400)
@@ -565,10 +560,11 @@ class SingleFileJiraFrame(Frame):
             return
 
 class JiraItemCard(ItemCard):
-    def __init__(self, parent, jira, jiraItem, handler, inputFilePath:str, outputFilePath:str, width=300, height=110, *args, **kwargs):
+    def __init__(self, parent, jira, jiraItem, handler, inputFilePath:str, outputFilePath:str, bugFrame:CreateBugFrame, width=300, height=110, *args, **kwargs):
         ItemCard.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
         self.inputFilePath = inputFilePath
         self.outputFilePath = outputFilePath
+        self.bugFrame = bugFrame
 
         self.transitionCombo = ttk.Combobox(self, values=[], state="normal")
         self.transitionCombo.place(x=150, y=7, width=100)
@@ -580,6 +576,42 @@ class JiraItemCard(ItemCard):
 
         self.uploadButton = Button(self, text="Upload\nFiles", command=self.Click_UploadButton)
         self.uploadButton.place(x=232, y=62, width=60)
+
+        self.createBugButton = Button(self, text="Log\nBug", command=self.Toggle_BugFrame)
+        self.createBugButton.place(x=182, y=62, width=40)
+
+        self.GetTransitions()
+
+    def Toggle_BugFrame(self):
+        if self.bugFrame.isVisible and self.bugFrame.activeItem.key == self.item.key:
+            self.bugFrame.CancelBug()
+        elif self.bugFrame.isVisible and self.bugFrame.activeItem.key != self.item.key:
+            self.bugFrame.UpdatedSelectedIssue(self.item, self.outputFilePath, self.inputFilePath)
+        else:
+            self.bugFrame.UpdatedSelectedIssue(self.item, self.outputFilePath, self.inputFilePath)
+            self.bugFrame.pack(side="top", fill="x", padx=1, pady=2)
+
+        self.bugFrame.isVisible = not self.bugFrame.isVisible
+
+    def GetTransitions(self):
+        self.handler.AsyncWork(
+            JiraAgent.GetIssueTransitions, 
+            self.Callback_GetTransitions,
+            self.jira, 
+            self.item.key, 
+        )
+
+    def Callback_GetTransitions(self, transTuple:Tuple[bool, List[Dict[str, Any]]]):
+        if not transTuple[0]:
+            return
+        
+        self.transitionDict = {}
+        selectIndex = -1
+        for tDict in transTuple[1]:
+            self.transitionDict[tDict["name"]] = tDict["id"]
+
+        self.transitionCombo.config(values=list(self.transitionDict.keys()))
+        self.transitionCombo.set(self.item.status)
 
     def Handle_ChangeStatus(self, event=None):
         self.transitionCombo.config(state="disabled")
@@ -622,7 +654,7 @@ class JiraItemCard(ItemCard):
         #print(MainUI.instance.resultFrame.selectedResultFile.absolutePath)
 
     def Callback_UpdateButton(self, returnObject):
-        self.uploadButton.ParseBool(type(returnObject[0]) != tuple)
+        self.uploadButton.ParseBool(returnObject[0])
 
 def MainExitCall():
 

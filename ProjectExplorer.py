@@ -14,8 +14,6 @@ from AsyncHandler import AsyncHandler
 from JiraItem import JiraItem as Item
 from JiraItem import JiraType
 from JiraItem import ItemCard as ParentItemCard
-from JiraControls import IssueFrame
-
 import JiraAgent as JiraAgent
 
 configPath = "Projects_Config.txt"
@@ -50,6 +48,7 @@ class ProjectViewerFrame(Frame):
         self.selectedProjectVar = StringVar()
         self.selectedProjectVar.set("")
         self.selectedProjectVar.trace_add("write", self.Handle_ProjectSelected)
+        self.ProjectSelectedEvents:List[Callable[[str], None]] = []
 
         self.inspector = ProjectInspecterFrame(self, None, self.handler, width=500, height=500, relief="ridge", bd=2)
         self.inspector.pack(side='left', fill="both", expand=True, **packKwargs)
@@ -62,6 +61,9 @@ class ProjectViewerFrame(Frame):
         #self.testButton.pack()
 
         JiraType.PopulateImages()
+
+    def SubscribeToProjectedSelectedEvent(self, func:Callable[[str], None]):
+        self.ProjectSelectedEvents.append(func)
 
     def GetLoadedProject(self) -> Project:
         return self.projectDict[self.selectedProjectVar.get()]
@@ -77,6 +79,9 @@ class ProjectViewerFrame(Frame):
         key = self.selectedProjectVar.get()
         self.inspector.ChangeLoadedProject(key, self.projectDict[key])
 
+        for func in self.ProjectSelectedEvents:
+            func(self.selectedProjectVar.get())
+
     def Click_TestButton(self):
         self.handler.AsyncWork(self.TestFunc, self.TestCallback)
 
@@ -89,11 +94,14 @@ class ProjectViewerFrame(Frame):
 
         self.AddProjectFrame(project)
 
-    def AddProjectFrame(self, projectInfo:Project):
+    def AddProjectFrame(self, projectInfo:Project, selectedProject:str=None):
         temp = ProjectSelectCard(self.projectsScrollFrame.packFrame, projectInfo, self.handler)
         temp.SubscribeToClickEvent(self.EventHandler_ProjectSelected)
         self.selectDict[projectInfo.key] = temp
         temp.pack(side="top", fill="x", expand=True, **packKwargs)
+
+        if temp.info.key == selectedProject:
+            temp.Handle_Click()
 
         self.projectsScrollFrame.ConfigureCanvas()
 
@@ -106,13 +114,15 @@ class ProjectViewerFrame(Frame):
             itemsInProjects[key] = [item.issueDict for item in value.items.values()]
         return {
             "projects": tempProjectDict,
-            "items": itemsInProjects
+            "items": itemsInProjects,
+            "selectedproject": self.selectedProjectVar.get()
         }
     
     def RestoreElements(self, rDict:Dict[str, Any]):
         if rDict is None:
             return
         
+        storedSelectedProject = rDict.get("selectedproject", "")
         tempProjectDict = rDict.get("projects", {})
         itemsDict = rDict.get("items", {})
 
@@ -120,7 +130,8 @@ class ProjectViewerFrame(Frame):
             project = Project(self.jira, value)
             self.projectDict[key] = project
             self.projectDict[key].UpdateItems(itemsDict.get(key, []))
-            self.AddProjectFrame(project)
+            self.AddProjectFrame(project, storedSelectedProject)
+
             
     def TestCallback(self, returnObject):
         for issue in returnObject[1]:
@@ -199,107 +210,6 @@ class Project:
     
     def GetItem(self, key:str) -> Item:
         return self.items[key]
-
-class ProjectInspecterFrame(Frame):
-    def __init__(self, parent:Frame, info:Project, asyncHandler:AsyncHandler, *args, **kwargs):
-        Frame.__init__(self, parent, *args, **kwargs)
-        self.key = ""
-        self.info = info
-        self.handler = asyncHandler
-
-        self.columnconfigure(1, weight=1)
-        self.rowconfigure(2, weight=1)
-
-        self.summaryFrame = Frame(self, width=500, height=100)
-        self.summaryFrame.grid(row=0, column=0, columnspan=2, **gridKwargs)
-
-        Label(self.summaryFrame, text="Project:").place(x=5, y=5)
-
-        self.nameVar = StringVar()
-        self.nameLabel = Label(self.summaryFrame, textvariable=self.nameVar)
-        self.nameLabel.place(x=5, y=30, width=100)
-
-        self.reqsOnlyVar = BooleanVar()
-        self.reqsOnlyVar.set(True)
-        self.requirementsOnlyCheckbox = Checkbutton(self, text="Only get Functional Requirements", variable=self.reqsOnlyVar)
-        self.requirementsOnlyCheckbox.grid(row=1, column=0, columnspan=2, **gridKwargs)
-
-        self.typesScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
-        self.typesScrollFrame.packFrame.config(bg="grey55")
-        self.typesScrollFrame.grid(row=2, column=0, **gridKwargs)
-        self.typesScrollFrame.hScroll.grid_forget()
-        self.typesScrollFrame.ConfigureCanvas(overrideWidth=125)
-
-        self.itemsScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
-        self.itemsScrollFrame.packFrame.config(bg="grey55")
-        self.itemsScrollFrame.grid(row=2, column=1, **gridKwargs)
-        self.itemsScrollFrame.hScroll.grid_forget()
-        self.itemsScrollFrame.ConfigureCanvas(overrideWidth=125)
-
-        self.typesSelected:List[str] = []
-
-        self.projectItemSelectedEvents:List[Callable[[], List[Item]]] = []
-
-    def SubscribeProjectItemSelectedEvent(self, func:Callable[[], List[Item]]):
-        self.projectItemSelectedEvents.append(func)
-    
-    def CallProjectItemSelectedEvent(self, items:List[Item]):
-        for func in self.projectItemSelectedEvents:
-            func(items)
-
-    def ChangeLoadedProject(self, key:str, info:Project):
-        self.info = info
-
-        self.UpdateProjectInfo()
-
-    def UpdateProjectInfo(self):
-        self.nameVar.set(self.info.projectName)
-
-        self.typesScrollFrame.ClearControls_Pack()
-
-        for itemType in self.info.typeDict:
-            temp = IssueTypeCard(self.typesScrollFrame.packFrame, itemType, self.Handle_TypeSelectedEvent)
-            temp.pack(side="top", fill="x", **packKwargs)
-        self.typesScrollFrame.ConfigureCanvas(125)
-
-    def Handle_TypeSelectedEvent(self, typeFrame:IssueTypeCard, isSelected:bool):
-        if isSelected:
-            self.typesSelected.append(typeFrame.issueType)
-        else:
-            self.typesSelected.remove(typeFrame.issueType)
-
-        self.PackSelectedItemsByType()
-
-    def PackSelectedItemsByType(self):
-        self.itemsScrollFrame.ClearControls_Pack()
-
-        for issueType in self.typesSelected:
-            #keys = self.info.GetItemsByType(type)
-            if self.reqsOnlyVar.get():
-                jqlString = f"project = {self.info.key} AND issuetype = {issueType} AND labels = \"FunctionalRequirements\" ORDER BY created DESC"
-            else:
-                jqlString = f"project = {self.info.key} AND issuetype = {issueType}  ORDER BY created DESC"
-
-            self.handler.AsyncWork(
-                JiraAgent.GetJQL,
-                self.Callback_GetItems,
-                self.info.jira,
-                jqlString
-            )
-                #item = self.info.GetItem(key)
-                #temp = ItemFrame(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
-                #temp.pack(side="top", fill="x", **packKwargs)
-        self.itemsScrollFrame.ConfigureCanvas()
-
-    def Callback_GetItems(self, returnObject):
-        if not returnObject[0]:
-            return
-        
-        for issueDict in returnObject[1]["issues"]:
-            item = Item(issueDict)
-            temp = ProjectItemCard(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
-            temp.SubscribeToGetChildrenEvent(self.CallProjectItemSelectedEvent)
-            temp.pack(side="top", fill="x", **packKwargs)
 
 class ProjectSelectCard(Frame):
     SelectedColor = RGB(150, 230, 250)
@@ -437,7 +347,109 @@ class ProjectSelectCard(Frame):
         
         self.info.UpdateItems(returnObject[1])
         self.issueCountLabel.config(text=len(returnObject[1]))
+
+class ProjectInspecterFrame(Frame):
+    def __init__(self, parent:Frame, info:Project, asyncHandler:AsyncHandler, *args, **kwargs):
+        Frame.__init__(self, parent, *args, **kwargs)
+        self.key = ""
+        self.info = info
+        self.handler = asyncHandler
+
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
+
+        self.summaryFrame = Frame(self, width=500, height=100)
+        self.summaryFrame.grid(row=0, column=0, columnspan=2, **gridKwargs)
+
+        Label(self.summaryFrame, text="Project:").place(x=5, y=5)
+
+        self.nameVar = StringVar()
+        self.nameLabel = Label(self.summaryFrame, textvariable=self.nameVar)
+        self.nameLabel.place(x=5, y=30, width=100)
+
+        self.reqsOnlyVar = BooleanVar()
+        self.reqsOnlyVar.set(True)
+        self.requirementsOnlyCheckbox = Checkbutton(self, text="Only get Functional Requirements", variable=self.reqsOnlyVar)
+        self.requirementsOnlyCheckbox.grid(row=1, column=0, columnspan=2, **gridKwargs)
+
+        self.typesScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
+        self.typesScrollFrame.packFrame.config(bg="grey55")
+        self.typesScrollFrame.grid(row=2, column=0, **gridKwargs)
+        self.typesScrollFrame.hScroll.grid_forget()
+        self.typesScrollFrame.ConfigureCanvas(overrideWidth=125)
+
+        self.itemsScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
+        self.itemsScrollFrame.packFrame.config(bg="grey55")
+        self.itemsScrollFrame.grid(row=2, column=1, **gridKwargs)
+        self.itemsScrollFrame.hScroll.grid_forget()
+        self.itemsScrollFrame.ConfigureCanvas(overrideWidth=125)
+
+        self.typesSelected:List[str] = []
+
+        self.projectItemSelectedEvents:List[Callable[[], List[Item]]] = []
+
+    def SubscribeProjectItemSelectedEvent(self, func:Callable[[], List[Item]]):
+        self.projectItemSelectedEvents.append(func)
+    
+    def CallProjectItemSelectedEvent(self, items:List[Item]):
+        for func in self.projectItemSelectedEvents:
+            func(items)
+
+    def ChangeLoadedProject(self, key:str, info:Project):
+        self.info = info
+
+        self.UpdateProjectInfo()
+
+    def UpdateProjectInfo(self):
+        self.nameVar.set(self.info.projectName)
+
+        self.typesScrollFrame.ClearControls_Pack()
+
+        for itemType in self.info.typeDict:
+            temp = IssueTypeCard(self.typesScrollFrame.packFrame, itemType, self.Handle_TypeSelectedEvent)
+            temp.pack(side="top", fill="x", **packKwargs)
+        self.typesScrollFrame.ConfigureCanvas(125)
+
+    def Handle_TypeSelectedEvent(self, typeFrame:IssueTypeCard, isSelected:bool):
+        if isSelected:
+            self.typesSelected.append(typeFrame.issueType)
+        else:
+            self.typesSelected.remove(typeFrame.issueType)
+
+        self.PackSelectedItemsByType()
+
+    def PackSelectedItemsByType(self):
+        self.itemsScrollFrame.ClearControls_Pack()
+
+        for issueType in self.typesSelected:
+            #keys = self.info.GetItemsByType(type)
+            if self.reqsOnlyVar.get():
+                jqlString = f"project = {self.info.key} AND issuetype = {issueType} AND labels = \"FunctionalRequirements\" ORDER BY created DESC"
+            else:
+                jqlString = f"project = {self.info.key} AND issuetype = {issueType}  ORDER BY created DESC"
+
+            self.handler.AsyncWork(
+                JiraAgent.GetJQL,
+                self.Callback_GetItems,
+                self.info.jira,
+                jqlString
+            )
+                #item = self.info.GetItem(key)
+                #temp = ItemFrame(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
+                #temp.pack(side="top", fill="x", **packKwargs)
+        self.itemsScrollFrame.ConfigureCanvas()
+
+    def Callback_GetItems(self, returnObject):
+        if not returnObject[0]:
+            return
         
+        for issueDict in returnObject[1]["issues"]:
+            item = Item(issueDict)
+            temp = ProjectItemCard(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
+            temp.SubscribeToGetChildrenEvent(self.CallProjectItemSelectedEvent)
+            temp.pack(side="top", fill="x", **packKwargs)
+
+     
 class IssueTypeCard(Frame):
     def __init__(self, parent:Frame, issueType:str, clickEvent:Callable[[IssueTypeCard], None], *args, **kwargs):
         Frame.__init__(self, parent, *args, **kwargs)

@@ -17,10 +17,10 @@ class FileTypes(enum.Enum):
 class ResultFile:
     dtMatch = r"(\d{1,2}[A-Za-z]{3}\d{1,2}_\d{1,2},\d{1,2},\d{1,2})"
     dtFormat = r"%d%b%y_%H,%M,%S"
-    def __init__(self, inputDir:str, pathFromInputDir:str, viewerFrame:ResultViewerFrame):
+    def __init__(self, inputDir:str, pathFromInputDir:str):
         self.resultsDir = inputDir
         self.pathFromInputDir = pathFromInputDir
-        self.viewerFrame = viewerFrame
+        #self.viewerFrame = viewerFrame
         self.fileType:FileTypes = FileTypes.Unknown
         self.parser:Parser = Parser(self)
         self.chunkDict:Dict[str, ChunkResults] = {}

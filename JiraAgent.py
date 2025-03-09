@@ -119,6 +119,21 @@ def LinkClonedIssue(jira:Jira, childIssue:str, parentIssue:str) -> Tuple[bool, D
     except httpExceptions.ConnectTimeout as e:
         return (False, e.args)
     
+def LinkDependsIssue(jira:Jira, childIssue:str, parentIssue:str) -> Tuple[bool, Dict[str, Any]]:
+    data = {
+            "type": {"name": "Depends" },
+            "inwardIssue": { "key": childIssue},
+            "outwardIssue": {"key": parentIssue},
+            }
+    try:
+        return (True, jira.create_issue_link(data))
+    except httpExceptions.HTTPError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectionError as e:
+        return (False, e.args)
+    except httpExceptions.ConnectTimeout as e:
+        return (False, e.args)
+    
 def GetJQL(jira:Jira, jqlRequest:str) -> Tuple[bool, Dict[str, Any]]:
     try:
         return (True, jira.jql(jqlRequest))
@@ -163,13 +178,13 @@ def AttachFile(jira:Jira, issueKey:str, pathToAttachment:str):
         raise FileNotFoundError(f"File of '{pathToAttachment}' not found")
     
     try:
-        return jira.add_attachment(issueKey, pathToAttachment)
+        return (True, jira.add_attachment(issueKey, pathToAttachment))
     except httpExceptions.HTTPError as e:
-        return [e.args]
+        return (False, [e.args])
     except httpExceptions.ConnectionError as e:
-        return [e.args]
+        return (False, [e.args])
     except httpExceptions.ConnectTimeout as e:
-        return [e.args]
+        return (False, [e.args])
     
 def GetJiraItem(jira:Jira, issueKey:str, filterCustomFields:bool=True):
     try:
