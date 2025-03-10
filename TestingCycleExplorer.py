@@ -32,12 +32,18 @@ class CycleExplorerUI(Frame):
 
         self.selectedCycleCard:CycleItemCard = None
 
+        self.cycleSelectFrame = Frame(self)
+        self.cycleSelectFrame.pack(side="left", fill="y", **packKwargs)
 
-        self.testCycleScrollFrame = ScrollFrame(self, width=1, bg="grey55", relief="sunken", bd=2)
+
+        self.testCycleScrollFrame = ScrollFrame(self.cycleSelectFrame, width=1, bg="grey55", relief="sunken", bd=2)
         self.testCycleScrollFrame.packFrame.config(bg="grey55")
-        self.testCycleScrollFrame.pack(side="left", fill="y", **packKwargs)
+        self.testCycleScrollFrame.pack(side="top", fill="y", expand=True, **packKwargs)
         self.testCycleScrollFrame.hScroll.grid_forget()
         self.testCycleScrollFrame.ConfigureCanvas(overrideWidth=300)
+
+        self.scanForTestCycleButton = Button(self.cycleSelectFrame, text="Scan for Test Cycles", command=self.Click_ScanForCycles)
+        self.scanForTestCycleButton.pack(side="bottom", fill="x", **packKwargs)
 
         self.itemsFoundFrame = Frame(self)
         self.itemsFoundFrame.pack(side="left", fill="y", **packKwargs)
@@ -56,6 +62,9 @@ class CycleExplorerUI(Frame):
 
         self.allResultFiles:List[ResultFile] = []
 
+    def Click_ScanForCycles(self):
+        self.Handle_GetTestCycles()
+
     def Click_UploadAllResults(self):
         self.uploadAllButton.WorkStart()
 
@@ -64,7 +73,6 @@ class CycleExplorerUI(Frame):
             self.Callback_UploadAllResultFiles
         )
         
-
     def UploadAllResults(self) -> bool:
         allTestingCards = self.itemsScrollFrame.packFrame.winfo_children()
         for itemFrame in allTestingCards:
@@ -89,11 +97,8 @@ class CycleExplorerUI(Frame):
 
         return overallSuccess
 
-                
-
     def Callback_UploadAllResultFiles(self, returnObject:bool):
         self.uploadAllButton.ParseBool(returnObject)
-
 
     def GetListOfResultFiles(self) -> List[ResultFile]:
         return self.allResultFiles    
@@ -311,11 +316,6 @@ class TestingItemCard(ItemCard):
         self.parentKeyLabel.config(text=self.clonedByItem.key)
 
         self.LookForResultFile()
-
-
-
-
-        
 
 def DummyGetResultDir() -> str:
     return r"C:\Users\E0498617\Documents\Local Scripts\Results"

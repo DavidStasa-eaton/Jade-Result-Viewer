@@ -4,6 +4,7 @@ import time
 import hashlib
 import requests
 
+import JiraAgent
 
 def is_json(data):
     try:
@@ -27,6 +28,7 @@ JWT_EXPIRE = 3600
 
 # BASE URL for Zephyr for Jira Cloud
 BASE_URL = 'https://prod-api.zephyr4jiracloud.com/connect'
+#BASE_URL = 'https://eaton-corp-sandbox.atlassian.net/jira/'
 
 # RELATIVE PATH for token generation and make request to api
 RELATIVE_PATH = '/public/rest/api/1.0/serverinfo'
@@ -73,7 +75,16 @@ if is_json(raw_result.text):
     json_result = json.loads(raw_result.text)
 
     # PRINT RESPONSE: pretty print with 4 indent
-    print(json.dumps(json_result, indent=4, sort_keys=True))
+    jString = json.dumps(json_result, indent=4, sort_keys=True)
+    print(jString)
+
+    with open("ZephyrTestJson.txt", "w") as wFile:
+        wFile.write(jString)
 
 else:
     print(raw_result.text)
+
+    with open("ZephyrTestRawText.txt", "w") as wFile:
+        wFile.write(raw_result.text)
+
+    print(raw_result.status_code)
