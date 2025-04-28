@@ -448,7 +448,6 @@ class ProjectInspecterFrame(Frame):
             temp = ProjectItemCard(self.itemsScrollFrame.packFrame, self.info.jira, item, self.handler)
             temp.SubscribeToGetChildrenEvent(self.CallProjectItemSelectedEvent)
             temp.pack(side="top", fill="x", **packKwargs)
-
      
 class IssueTypeCard(Frame):
     def __init__(self, parent:Frame, issueType:str, clickEvent:Callable[[IssueTypeCard], None], *args, **kwargs):

@@ -2,7 +2,7 @@ import json
 import re
 import os
 import tkinter
-from tkinter import Tk, Frame, Entry, Button, Label, Scrollbar, Canvas, BooleanVar, IntVar, StringVar, ttk, END, Toplevel
+from tkinter import Tk, Frame, Entry, Button, Label, Scrollbar, Canvas, BooleanVar, IntVar, StringVar, ttk, END, Toplevel, filedialog
 import time
 import math
 import re
@@ -122,6 +122,21 @@ def Button_ParseBool(button:Button, success:bool, successColor="lightgreen", fai
 
 Button.WorkStart = Button_WorkStart
 Button.ParseBool = Button_ParseBool
+
+def AskForFile(title:str="Select a File", filetypes:List[Tuple[str, str]]=None):
+    """Use Tk's filedialog to ask the user for a file. 
+
+    Examples of filetypes:
+        filetypes=[("Excel Files", "*.xlsx *.xls"), ("All Files", "*")]
+
+    Args:
+        title (str, optional): Title of file dialog window. Defaults to "Select a File".
+        filetypes (List[Tuple[str, str]], optional): What file types to ask for. Defaults to all file types.
+    """    
+    if filetypes is None:
+        filetypes = [("All Files", ".")]
+
+    return filedialog.askopenfilename(title=title, filetypes=filetypes)
 
 class ColorButton(Button):
     def __init__(self, frame, initialColor='#FF0000', *args, **kwargs):
