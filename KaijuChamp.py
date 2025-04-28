@@ -12,6 +12,7 @@ import time
 from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseBool, Button_WorkStart
 from JiraControls import JiraCredentialsFrame
 from ProjectExplorer import ProjectViewerFrame
+from JiraUploader import JiraUploaderFrame
 from RequirementsTracker import ReqTrackerUI
 from TestingCycleExplorer import CycleExplorerUI
 import JiraItem
@@ -24,6 +25,8 @@ configPath = "ProjectTrackerConfig.txt"
 class MainUI(Frame):
     def __init__(self, tk:Tk, *args, **kwargs):
         Frame.__init__(self, tk, *args, **kwargs)
+
+        tk.geometry("1500x800+100+50")
 
         self.handler = AsyncHandler(self)
         self.handler.StartAsync()
@@ -102,6 +105,14 @@ class MainUI(Frame):
         self.testCycleFrame = CycleExplorerUI(self, self.GetResultFileDir, self.handler)
         #self.testCycleFrame.ioFrame.SubscribeToResultDirChangedEvent(self.Callback_ResultDirChanged)
         self.noteBook.add(self.testCycleFrame, text="Testing Cycles")
+
+        ##################################################################################################################
+        ##############################                Jira Uploader              #########################################
+        ##################################################################################################################
+
+        self.jiraUploader = JiraUploaderFrame(self)
+        #self.jiraUploader.SubscribeToProjectedSelectedEvent(self.Callback_SelectProjectChangedEvent)
+        self.noteBook.add(self.jiraUploader, text="Jira Uploader")
 
         self.RestoreElements()
 

@@ -175,7 +175,7 @@ class Project:
         self.rawInfo = projectInfo
 
         self.id = projectInfo["id"]
-        self.key = projectInfo["key"]
+        self.key:str = projectInfo["key"]
         self.projectName = projectInfo["name"]
 
         self.items:Dict[str, Item] = []

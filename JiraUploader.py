@@ -48,9 +48,9 @@ class JiraUploaderFrame(Frame):
 
         self.topFrame = Frame(self, bg="grey55", relief="sunken", bd=2)
         self.topFrame.pack(side="top", fill="x")
-        self.projectFrame = Frame(self, relief="ridge", bd=2, height=55)
+        self.projectFrame = Frame(self, relief="ridge", bd=2, height=61)
         self.projectFrame.pack(side="top", fill="x", **packKwargs)
-        self.parentsFrame = Frame(self, relief="ridge", bd=2, height=55)
+        self.parentsFrame = Frame(self, relief="ridge", bd=2, height=116)
         self.parentsFrame.pack(side="top", fill="x", **packKwargs)
         self.botFrame = Frame(self)
         self.botFrame.pack(side="top", fill="both", expand=True)
@@ -75,13 +75,17 @@ class JiraUploaderFrame(Frame):
         self.itemToUploadFrame.hScroll.grid_forget()
         #self.itemToUploadFrame.ConfigureCanvas(overrideWidth=150)
 
+        self.controlFrame = Frame(self.botFrame, relief="groove", bd=2, width=300)
+        self.controlFrame.pack(side="left", fill='y', **packKwargs)
+
         self.df = None
         self.headers = []
 
         self.PackExpectedFieldsFrame()
 
         # test code, delete
-        self.filePathVar.set("C:/Users/E0498617/Desktop/Jira booklet for Passcode.xlsx")
+        #if __name__ == "__main__":
+        #    self.filePathVar.set("C:/Users/E0498617/Desktop/Jira booklet for Passcode.xlsx")
 
     def AskForFile(self):
          self.filePathVar.set(AskForFile("Select Excel Sheet", [("Excel Files", "*.xlsx *.xls"), ("All Files", "*")]))
@@ -93,25 +97,59 @@ class JiraUploaderFrame(Frame):
         else:
             self.filePathLabel.config(bg="white")
 
+        # Resets
+        for card in self.GetListOfFieldFrames():
+            card.Reset()
+
+        self.itemToUploadFrame.ClearControls_Pack()
+        self.itemToUploadCardList:List[ItemToUploadFrame] = []
+        #####################################################################
+
         self.df = pd.read_excel(self.filePathVar.get())
         self.headers = list(self.df.columns)
         self.UpdateFieldFrames() # updates frame on the left with the column headers defined in the excel sheet. 
         self.GenerateItemCards()
+
         self.GetAndLookupUniqueProjects()
         self.GetAndLookupParentInfo()
-        #for head in self.headers:
-        #    closest = difflib.get_close_matches(
-        #        head,
-        #        self.fieldsList, 
-        #        n=1, cutoff=0.6
-        #    )
-        #    print(f"Head: {head} ::: Closest: {closest}")
-        #for index, row in self.df.iterrows():
-        #    print(f"Index: {index} ::: Summary: {row["Summary"]}")
+        self.handler.SubscribeToTaskCompleteEvent(self.Handle_AsyncLookupTasksCompleted)
+
+
+    def Handle_FieldFrameUpdated(self, success:bool, header:str, value:str):
+        if not success:
+            return
+        
+        self.UpdateItemCards()
+
+        if header.upper() == "PROJECT":
+            self.GetAndLookupUniqueProjects()
+            self.handler.SubscribeToTaskCompleteEvent(self.Handle_AsyncLookupTasksCompleted)
+        elif header.upper() == "PARENT":
+            self.GetAndLookupParentInfo()
+            self.handler.SubscribeToTaskCompleteEvent(self.Handle_AsyncLookupTasksCompleted)
+
+
+    def Handle_AsyncLookupTasksCompleted(self):
+        self.handler.TaskCompleteEvent.remove(self.Handle_AsyncLookupTasksCompleted)
+        cardList = self.GetUploadItemsFrame()
+
+        for card in cardList:
+            card.CheckForErrors()
 
     def UpdateFieldFrames(self):
         for fFrame in self.GetListOfFieldFrames():
             fFrame.UpdateHeaderValues(self.headers)
+
+    def UpdateItemCards(self):
+        keyPairs = []
+        for fFrame in self.GetListOfFieldFrames():
+            keyPairs.append(fFrame.GetKeysForJiraAndExcel())
+
+        for index, row in self.df.iterrows():
+            uInfo = UploadInfo.FromRow(row, index, keyPairs, self.LookupParentCard, self.CheckForProject)
+            temp = self.itemToUploadCardList[index]
+            temp:ItemToUploadFrame
+            temp.ParseUploadInfo(uInfo)
 
     def GenerateItemCards(self):
         keyPairs = []
@@ -120,7 +158,7 @@ class JiraUploaderFrame(Frame):
 
         self.itemToUploadCardList = []
         for index, row in self.df.iterrows():
-            uInfo = UploadInfo.FromRow(row, keyPairs, self.LookupParentCard)
+            uInfo = UploadInfo.FromRow(row, index, keyPairs, self.LookupParentCard, self.CheckForProject)
             temp = ItemToUploadFrame(self.itemToUploadFrame.packFrame, uInfo, self.jira, self.handler)
             temp.pack(side='top')
             self.itemToUploadCardList.append(temp)
@@ -134,13 +172,14 @@ class JiraUploaderFrame(Frame):
         self.projectsFoundList = []
         widgets = self.projectFrame.winfo_children()
         for control in widgets:
-            self.projectFrame.pack_forget(control)
+            control.pack_forget()
 
         for key in uniqueProjects:
             self.GetProjectInfo(key)
 
     def GetProjectInfo(self, key:str):
-        self.handler.AsyncWork(JiraAgent.GetProject, self.Callback_ProcessProjectInfo, self.jira, key)
+        if key != "":
+            self.handler.AsyncWork(JiraAgent.GetProject, self.Callback_ProcessProjectInfo, self.jira, key)
         
     def Callback_ProcessProjectInfo(self, returnObject:Tuple[bool, Dict[str, Any]]):
         if not returnObject[0]:
@@ -150,7 +189,7 @@ class JiraUploaderFrame(Frame):
         projectInfo = Project(self.jira, returnObject[1])
         card = ProjectSelectCard(self.projectFrame, projectInfo, self.handler)
         card.pack(side="left", **packKwargs)
-        self.projectsFoundList.append(projectInfo.key)
+        self.projectsFoundList.append(projectInfo.key.upper())
 
     def GetAndLookupParentInfo(self):
         if len(self.itemToUploadCardList) == 0:
@@ -161,13 +200,14 @@ class JiraUploaderFrame(Frame):
         self.parentsFoundDict = {}
         widgets = self.parentsFrame.winfo_children()
         for control in widgets:
-            self.parentsFrame.pack_forget(control)
+            control.pack_forget()
 
         for key in uniqueParents:
             self.GetParentInfo(key)
 
     def GetParentInfo(self, key:str):
-        self.handler.AsyncWork(JiraAgent.GetJiraItem, self.Callback_ProcessParentInfo, self.jira, key)
+        if key != "":
+            self.handler.AsyncWork(JiraAgent.GetJiraItem, self.Callback_ProcessParentInfo, self.jira, key)
         
     def Callback_ProcessParentInfo(self, returnObject:Tuple[bool, Dict[str, Any]]):
         if not returnObject[0]:
@@ -183,17 +223,23 @@ class JiraUploaderFrame(Frame):
     def LookupParentCard(self, key):
         return self.parentsFoundDict.get(key, None)
 
+    def CheckForProject(self, projectKey:str):
+        return projectKey.upper() in self.projectsFoundList
 
     def PackExpectedFieldsFrame(self):
         self.expectedFieldsFrame.ClearControls_Pack()
         for expectedHeader in self.fieldsList:
             temp = FieldFrame(self.expectedFieldsFrame.packFrame, self.fieldsList, expectedHeader)
             temp.pack(side="top", fill="both", **packKwargs)
+            temp.ValueSelectedEvents.append(self.Handle_FieldFrameUpdated)
 
         self.expectedFieldsFrame.ConfigureCanvas()
         
     def GetListOfFieldFrames(self) -> List[FieldFrame]:
         return self.expectedFieldsFrame.packFrame.winfo_children()
+    
+    def GetUploadItemsFrame(self) -> List[ItemToUploadFrame]:
+        return self.itemToUploadFrame.packFrame.winfo_children()
 
 class FieldFrame(Frame):
     def __init__(self, frame, validFields:List[str], expectedFields:List[str], *args, **kwargs):
@@ -202,19 +248,38 @@ class FieldFrame(Frame):
         self.columnconfigure(1, weight=1)
 
         self.validFields = validFields
-        self.expectedField = expectedFields[0]
+        self.expectedFields = expectedFields[0]
         self.allExpected = expectedFields
+        self.ValueSelectedEvents:List[Callable[[], Tuple[bool, str, str]]] = []
 
-        self.expectedLabel = Label(self, text=self.expectedField, relief="sunken", bd=2, bg="grey55")
+        self.expectedLabel = Label(self, text=self.expectedFields, relief="sunken", bd=2, bg="grey55")
         self.expectedLabel.grid(row=0, column=0, columnspan=2, **gridKwargs)
 
         Label(self, text="Header:").grid(row=1, column=0, **gridKwargs)
 
-        self.selectFieldCombobox = ttk.Combobox(self)
+        self.selectFieldCombobox = ttk.Combobox(self, state="readonly")
         self.selectFieldCombobox.grid(row=1, column=1, **gridKwargs)
+        self.selectFieldCombobox.bind("<<ComboboxSelected>>", self.Handled_FieldComboBoxChanged)
 
         self.percentMatchLabel = Label(self, text="-", width=5)
         self.percentMatchLabel.grid(row=2, column=0, **gridKwargs)
+
+        self.clearButton = Button(self, text="Clear", command=self.Click_ClearSelectedValue)
+        self.clearButton.grid(row=2, column=1, **gridKwargs)
+
+    def Click_ClearSelectedValue(self):
+        self.selectFieldCombobox.set("")
+
+        self.expectedLabel.config(bg="grey55")
+
+        for func in self.ValueSelectedEvents:
+            func(True, self.expectedFields, self.selectFieldCombobox.get())
+
+    def Reset(self):
+        """Clear out expected fields and blank out the combobox"""
+        
+        self.selectFieldCombobox.set("")
+        self.selectFieldCombobox.config(values=[])
 
     def UpdateHeaderValues(self, excelHeaders:List[str], expectedIndex:int=0):
         expected = self.allExpected[expectedIndex]
@@ -240,8 +305,18 @@ class FieldFrame(Frame):
             else:
                 self.UpdateHeaderValues(excelHeaders, expectedIndex)
         
+    def Handled_FieldComboBoxChanged(self, event=None):
+        success = len(self.selectFieldCombobox.get()) > 0
+        if success:
+            self.expectedLabel.config(bg="lightgreen")
+        else:
+            self.expectedLabel.config(bg="lightsalmon")
+
+        for func in self.ValueSelectedEvents:
+            func(success, self.expectedFields, self.selectFieldCombobox.get())
+
     def GetKeysForJiraAndExcel(self) -> Tuple[str, str]:
-        return [self.expectedField, self.selectFieldCombobox.get()]
+        return [self.expectedFields, self.selectFieldCombobox.get()]
 
 class ItemToUploadFrame(Frame):
     width = 750
@@ -252,46 +327,122 @@ class ItemToUploadFrame(Frame):
         self.jira = jira
         self.handler = asyncHandler
 
+        self.errors:List[str] = []
+        self.afterError = None
+
         self.config(relief="ridge", bd=2, width=ItemToUploadFrame.width, height=ItemToUploadFrame.height)
 
-        Label(self, text=uploadInfo.project, relief="groove", bd=2).place(x=3, y=3, width=100)
-        Label(self, text=uploadInfo.summary, relief="sunken", bd=2, bg="grey55").place(x=106, y=3, width=ItemToUploadFrame.width - 112)
+        self.projectVar = StringVar()
+        self.summaryVar = StringVar()
+        self.parentVar = StringVar()
+        self.issueTypeVar = StringVar()
+        self.assigneeVar = StringVar()
+        self.sprintVar = StringVar()
+        self.fixVerVar = StringVar()
+        self.descriptionVar = StringVar()
+
+        Label(self, textvariable=self.projectVar, relief="groove", bd=2).place(x=3, y=3, width=100)
+        Label(self, textvariable=self.summaryVar, relief="sunken", bd=2, bg="grey55").place(x=106, y=3, width=ItemToUploadFrame.width - 112)
 
         xLeftFields = 75
         fieldKwargs = dict(relief="sunken", bd="2", width=20, bg="grey55")
 
         Label(self, text="Parent:").place(x=3, y=30)
-        Label(self, text=uploadInfo.parent, **fieldKwargs).place(x=xLeftFields, y=30)
+        Label(self, textvariable=self.parentVar, **fieldKwargs).place(x=xLeftFields, y=30)
 
-        self.image = JiraType.LoadImageBasedOnType(uploadInfo.issueType)
         Label(self, text="Type:").place(x=3, y=55)
-        Label(self, text=uploadInfo.issueType, relief="sunken", bd="2", width=17, bg="grey55").place(x=xLeftFields+20, y=55)
+        Label(self, textvariable=self.issueTypeVar, relief="sunken", bd="2", width=17, bg="grey55").place(x=xLeftFields+20, y=55)
+        self.imageId = None
         self.typeCanvas = Canvas(self, height=20, width=20)
-        self.typeCanvas.create_image(10,10, image=self.image)
         self.typeCanvas.place(x=xLeftFields, y=55, height=20, width=20)
 
-
         Label(self, text="Assignee:").place(x=3, y=80)
-        Label(self, text=uploadInfo.assignee, **fieldKwargs).place(x=xLeftFields, y=80)
+        Label(self, textvariable=self.assigneeVar, **fieldKwargs).place(x=xLeftFields, y=80)
 
         Label(self, text="Sprint:").place(x=3, y=105)
-        Label(self, text=uploadInfo.sprint, **fieldKwargs).place(x=xLeftFields, y=105)
+        Label(self, textvariable=self.sprintVar, **fieldKwargs).place(x=xLeftFields, y=105)
 
         Label(self, text="Fix Version:").place(x=3, y=130)
-        Label(self, text=uploadInfo.fixVersion, **fieldKwargs).place(x=xLeftFields, y=130)
+        Label(self, textvariable=self.fixVerVar, **fieldKwargs).place(x=xLeftFields, y=130)
 
-        Label(self, text=uploadInfo.description, relief='sunken', bd=2, bg="grey75", ).place(
+        Label(self, textvariable=self.descriptionVar, relief='sunken', bd=2, bg="grey75", ).place(
                   x=xLeftFields + 160, y = 30, height=120, width=ItemToUploadFrame.width - 245
               )
         
         self.uploadFrame = Frame(self, relief="groove", bd=2)
         self.uploadFrame.place(x=3, y=155, width=ItemToUploadFrame.width - 6)
 
-        self.uploadButton = Button(self.uploadFrame, text="Upload", command=self.Click_UploadItem)
+        self.uploadButton = Button(self.uploadFrame, text="Upload", command=self.Click_UploadItem, state="disabled")
         self.uploadButton.pack(side="left", **packKwargs)
 
         self.statusLabel = Label(self.uploadFrame, text="-", anchor="w", relief="sunken", bd=2, bg="grey55", width=50)
         self.statusLabel.pack(side="left", **packKwargs)
+
+        self.ParseUploadInfo(uploadInfo)
+
+    def ParseUploadInfo(self, uploadInfo:UploadInfo):
+        self.uploadInfo = uploadInfo
+
+        self.projectVar.set(self.uploadInfo.project)
+        self.summaryVar.set(self.uploadInfo.summary)
+        self.parentVar.set(self.uploadInfo.parent)
+        self.issueTypeVar.set(self.uploadInfo.issueType)
+        self.assigneeVar.set(self.uploadInfo.assignee)
+        self.sprintVar.set(self.uploadInfo.sprint)
+        self.fixVerVar.set(self.uploadInfo.fixVersion)
+        self.descriptionVar.set(self.uploadInfo.description)
+
+        self.image = JiraType.LoadImageBasedOnType(self.uploadInfo.issueType)
+        if self.imageId is not None:
+            self.typeCanvas.delete(self.imageId)
+        self.imageId = self.typeCanvas.create_image(10,10, image=self.image)
+        
+        self.CheckForErrors()
+
+    @property
+    def IsValid(self) -> bool:
+        return len(self.errors) == 0
+    
+    def CheckForErrors(self):
+        self.errors = []
+        if not self.uploadInfo.projectLookupFunc(self.uploadInfo.project):
+            self.errors.append(f"Project \"{self.uploadInfo.project}\" not found.")
+
+        if self.uploadInfo.parentLookupFunc(self.uploadInfo.parent) is None and self.uploadInfo.parent != "":
+            self.errors.append(f"Parent \"{self.uploadInfo.parent}\" not found.")
+
+        if self.image == JiraItem.unknownImage:
+            self.errors.append(f"Unknown item type of \"{self.uploadInfo.issueType}\"")
+
+        self.Update_UI_BasedOnValidity()
+
+    def Update_UI_BasedOnValidity(self) -> bool:
+        if self.afterError is not None:
+            self.after_cancel(self.afterError)
+
+        errorCount = len(self.errors)
+        if errorCount == 0:
+            self.statusLabel.config(bg="grey55", text="-")
+            self.uploadButton.config(state="normal")
+            
+            return True
+        
+        self.uploadButton.config(state="disabled")
+        self.statusLabel.config(text=f"{errorCount} Error(s): {self.errors[0]}", bg="lightsalmon")
+        if errorCount > 1:
+            self.afterError = self.after(3000, self.DisplayErrorsLoop, errorCount, 1)
+
+        return False
+    
+    def DisplayErrorsLoop(self, errorCount:int, errorIndex:int):
+        if errorIndex >= errorCount:
+            errorIndex = 0
+
+        self.statusLabel.config(text=f"{errorCount} Error(s): {self.errors[errorIndex]}")
+
+        errorIndex += 1
+        self.afterError = self.after(3000, self.DisplayErrorsLoop, errorCount, errorIndex)
+
 
     def Click_UploadItem(self):
         self.statusLabel.config(text=f"Creating Jira Item")
@@ -312,8 +463,9 @@ class ItemToUploadFrame(Frame):
         self.statusLabel.config(text=f"Succesfully created item: {item.key}")
         
 class UploadInfo:
-    def __init__(self, lookupFunc:Callable[[], ItemCard], project:str, summary:str, issueType:str, parent="", description:str="", fixVersion:str="", assignee:str="", sprint=""):
-        self.lookupFunc:Callable[[], ItemCard] = lookupFunc
+    def __init__(self, parentLookupFunc:Callable[[], ItemCard], projectLookupFunc:Callable[[str],bool], project:str, summary:str, issueType:str, parent="", description:str="", fixVersion:str="", assignee:str="", sprint=""):
+        self.parentLookupFunc:Callable[[], ItemCard] = parentLookupFunc
+        self.projectLookupFunc:Callable[[str],bool] = projectLookupFunc
         self.project = project
         self.summary = summary      
         self.issueType = issueType
@@ -341,7 +493,7 @@ class UploadInfo:
         #"parent": {"key:": epicItem.key, "id": str(epicItem.id)},
 
         if self.parent != "":
-            card = self.lookupFunc(self.parent)
+            card = self.parentLookupFunc(self.parent)
             card:ItemCard
 
             values = {"key": card.item.key, "id": str(card.item.id)}
@@ -364,7 +516,7 @@ class UploadInfo:
         return rDict
 
     @classmethod
-    def FromRow(cls, row:pd.DataFrame, keyLookupPairs:List[Tuple[str, str]], lookupFunc):
+    def FromRow(cls, row:pd.DataFrame, index:str, keyLookupPairs:List[Tuple[str, str]], parentLookupFunc:Callable[[], ItemCard], projectLookupFunc:Callable[[str], bool]):
         project = ""
         parent = ""
         summary = ""
@@ -378,7 +530,8 @@ class UploadInfo:
             jiraValue = keyPair[0]
             excelHeader = keyPair[1]
 
-            
+            if excelHeader == "":
+                continue
 
 
             if jiraValue == "Project":
@@ -398,9 +551,10 @@ class UploadInfo:
             elif jiraValue == "Sprint":
                 sprint = row[excelHeader]
 
-        return cls(lookupFunc, project, summary, issueType, parent, description, fixVersion, assignee, sprint)
+        if summary == "":
+            summary = f"Row {index+1}: {row[0]}"
 
-
+        return cls(parentLookupFunc, projectLookupFunc, project, summary, issueType, parent, description, fixVersion, assignee, sprint)
 
 def MainExitCall():
     tk.destroy()
@@ -412,7 +566,6 @@ def MainExitCall():
         configFile.write(jString)
     
     tk.destroy()
-
 
 def RestoreJiraElements():
         jiraConfigPath = "JadeResultParserConfig.txt"
@@ -430,6 +583,7 @@ if __name__ == "__main__":
     RestoreJiraElements()
 
     JiraType.PopulateImages()
+    tk.geometry("1600x850+25+25")
     mainUI = JiraUploaderFrame(tk)
     mainUI.pack(side='top', fill="both", expand=True)
     #mainUI.Click_TestButton()
