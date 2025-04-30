@@ -499,7 +499,7 @@ class ScrollFrame(Frame):
         self.rightPackFrame.bind('<Configure>', None)
         self.rightPackFrame['bg'] = 'grey55'
     '''
-    def __init__(self, frame, primaryDirection='vertical', fillWindow=False, printConfig=False, *args, **kwargs):
+    def __init__(self, frame, primaryDirection='vertical', fillWindow=False, printConfig=False, canvasHeight:int=100, *args, **kwargs):
         Frame.__init__(self, frame, *args, **kwargs)
         self.frame = frame
         self.primaryDirection = primaryDirection
@@ -523,7 +523,7 @@ class ScrollFrame(Frame):
         self.canvas = Canvas(self, bd=0, highlightthickness=0, 
                                 xscrollcommand=self.hScroll.set, 
                                 yscrollcommand=self.vScroll.set, 
-                                bg=kwargs.get('bg', 'grey55'))
+                                bg=kwargs.get('bg', 'grey55'), height=canvasHeight)
 
         self.canvas.grid(row=0, column=0, sticky='wens')
         self.canvas.bind('<Enter>', self.MouseIn)
@@ -632,9 +632,11 @@ class ScrollFrame(Frame):
         except IndexError:
             horzRegion = None
             vertRegion = None
+
+            
         if self.packFrame.winfo_reqheight() != vertRegion or self.packFrame.winfo_reqwidth() != horzRegion:
             self.packFrame.update_idletasks()
-            size = (2, self.packFrame.winfo_reqheight())
+            size = (self.packFrame.winfo_reqwidth(), self.packFrame.winfo_reqheight())
             self.canvas.config(scrollregion=(0,0,size[0], size[1]))
 
         if overrideWidth > -1:
@@ -1101,6 +1103,8 @@ class ToolTip:
         self.control.bind("<Leave>", self.Handle_Leave)
         self.control.bind("<ButtonPress>", self.Handle_Leave)
 
+        self.isEntered = False
+
         self.afterID = None
         self.popUp = None
 
@@ -1108,13 +1112,15 @@ class ToolTip:
         if self.popUp:
             return
         
-        self.Handle_Leave(event)
+        self.isEntered = True
+        #self.Handle_Leave(event)
 
         self.control.after(self.waitTime, self.ShowTip)
 
     def Handle_Leave(self, event=None):
         afterID = self.afterID
         self.afterID = None
+        self.isEntered = False
         
         if afterID:
             self.control.after_cancel(afterID)
@@ -1122,6 +1128,9 @@ class ToolTip:
         self.HideTip()
 
     def ShowTip(self):
+        if not self.isEntered:
+            return
+        
         x = 0
         y = 0
 

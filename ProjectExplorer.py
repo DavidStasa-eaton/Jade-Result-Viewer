@@ -178,7 +178,7 @@ class Project:
         self.key:str = projectInfo["key"]
         self.projectName = projectInfo["name"]
 
-        self.items:Dict[str, Item] = []
+        self.items:Dict[str, Item] = {}
 
         self.typeDict:Dict[str, List[str]] = {} # key will be issue type (eg: bug, task, epic...). Value will be list of issue keys with that issue type
 

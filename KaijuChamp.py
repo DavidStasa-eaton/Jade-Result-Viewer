@@ -13,7 +13,7 @@ from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseB
 from JiraControls import JiraCredentialsFrame
 from ProjectExplorer import ProjectViewerFrame
 from JiraUploader import JiraUploaderFrame
-from RequirementsTracker import ReqTrackerUI
+from ResultViewer import ReqTrackerUI
 from TestingCycleExplorer import CycleExplorerUI
 import JiraItem
 from AsyncHandler import AsyncHandler
@@ -96,7 +96,7 @@ class MainUI(Frame):
 
         self.reqTrackerFrame = ReqTrackerUI(self, self.handler)
         self.reqTrackerFrame.ioFrame.SubscribeToResultDirChangedEvent(self.Callback_ResultDirChanged)
-        self.noteBook.add(self.reqTrackerFrame, text="Req Tracker")
+        self.noteBook.add(self.reqTrackerFrame, text="Result Viewer")
 
         ##################################################################################################################
         ##############################            Testing Cycle Tracker          #########################################
