@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu, messagebox, Checkbutton, BooleanVar
+from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, IntVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu, messagebox, Checkbutton, BooleanVar
 import json
 from typing import Dict, List, Tuple, Any, Callable, TYPE_CHECKING
 import re
@@ -35,6 +35,7 @@ class ProjectViewerFrame(Frame):
         self.projectDict:Dict[str, Project] = {}
         self.selectDict:Dict[str, ProjectSelectCard] = {}
 
+        #Menu on the left that contains all the loaded projects
         self.projectsScrollFrame = ScrollFrame(self.selectFrame, width=1, bg="grey55", relief="sunken", bd=2)
         self.projectsScrollFrame.packFrame.config(bg="grey55")
         self.projectsScrollFrame.pack(side="top", fill="both", expand=True, **packKwargs)
@@ -50,17 +51,25 @@ class ProjectViewerFrame(Frame):
         self.selectedProjectVar.trace_add("write", self.Handle_ProjectSelected)
         self.ProjectSelectedEvents:List[Callable[[str], None]] = []
 
-        self.inspector = ProjectInspecterFrame(self, None, self.handler, width=500, height=500, relief="ridge", bd=2)
+        self.inspector = ProjectInspecterFrame(self, None, self.handler, width=480, height=500, relief="ridge", bd=2)
         self.inspector.pack(side='left', fill="both", expand=True, **packKwargs)
+        self.inspector.SubscribeProjectItemSelectedEvent(self.Handle_ItemTypeFromProjectSelected)
 
         self.childInspecter = CycleInspectorFrame(self, self.handler, self.jira, self.GetLoadedProject)
         self.childInspecter.pack(side="left", fill="y", **packKwargs)
-        self.inspector.SubscribeProjectItemSelectedEvent(self.childInspecter.AdoptChildren)
+        
 
         #self.testButton = Button(self, text="Test", command=self.Click_TestButton)
         #self.testButton.pack()
 
         JiraType.PopulateImages()
+
+    def Handle_ItemTypeFromProjectSelected(self, isActive:bool, items:List[Item]):
+        if isActive:
+            self.childInspecter.AdoptChildren(items)
+        else:
+            self.childInspecter.RemoveChildren(items)
+        
 
     def SubscribeToProjectedSelectedEvent(self, func:Callable[[str], None]):
         self.ProjectSelectedEvents.append(func)
@@ -131,8 +140,7 @@ class ProjectViewerFrame(Frame):
             self.projectDict[key] = project
             self.projectDict[key].UpdateItems(itemsDict.get(key, []))
             self.AddProjectFrame(project, storedSelectedProject)
-
-            
+        
     def TestCallback(self, returnObject):
         for issue in returnObject[1]:
              print(issue)
@@ -217,6 +225,7 @@ class ProjectSelectCard(Frame):
         Frame.__init__(self, parent, *args, **kwargs)
         self.info = info
         self.handler = asyncHandler
+        self.DoneFindingAllItemsEvent:List[Callable[[], Project]] = []
 
         self.config(bd=2, relief="raised")
 
@@ -326,7 +335,10 @@ class ProjectSelectCard(Frame):
     def GetAllIssues(self):
         self.issueCountLabel.config(text=f"Fetching... Found: 0")
         self.refreshButton.StartLoading()
-        self.handler.AsyncWork(JiraAgent.GetAllIssuesInProject, self.Callback_GetIssues, self.info.jira, self.info.key, UpdateFunc=self.Handle_GetAllItems_Update)
+        self.handler.AsyncWork(JiraAgent.GetAllIssuesInProject, 
+                               self.Callback_GetIssues, 
+                               self.info.jira, 
+                               self.info.key, UpdateFunc=self.Handle_GetAllItems_Update)
 
     def Handle_GetAllItems_Update(self, newCount:int, totalCount:int):
         """Will be called by JiraAgen.GetAllIssuesInProject. Will give user updates while it retreives all issues from a project. 
@@ -347,6 +359,8 @@ class ProjectSelectCard(Frame):
         
         self.info.UpdateItems(returnObject[1])
         self.issueCountLabel.config(text=len(returnObject[1]))
+        for func in self.DoneFindingAllItemsEvent:
+            func(self.info)
 
 class ProjectInspecterFrame(Frame):
     def __init__(self, parent:Frame, info:Project, asyncHandler:AsyncHandler, *args, **kwargs):
@@ -358,7 +372,7 @@ class ProjectInspecterFrame(Frame):
         self.columnconfigure(1, weight=1)
         self.rowconfigure(2, weight=1)
 
-        self.summaryFrame = Frame(self, width=500, height=100)
+        self.summaryFrame = Frame(self, width=400, height=100)
         self.summaryFrame.grid(row=0, column=0, columnspan=2, **gridKwargs)
 
         Label(self.summaryFrame, text="Project:").place(x=5, y=5)
@@ -368,7 +382,7 @@ class ProjectInspecterFrame(Frame):
         self.nameLabel.place(x=5, y=30, width=100)
 
         self.reqsOnlyVar = BooleanVar()
-        self.reqsOnlyVar.set(True)
+        self.reqsOnlyVar.set(False)
         self.requirementsOnlyCheckbox = Checkbutton(self, text="Only get Functional Requirements", variable=self.reqsOnlyVar)
         self.requirementsOnlyCheckbox.grid(row=1, column=0, columnspan=2, **gridKwargs)
 
@@ -391,9 +405,9 @@ class ProjectInspecterFrame(Frame):
     def SubscribeProjectItemSelectedEvent(self, func:Callable[[], List[Item]]):
         self.projectItemSelectedEvents.append(func)
     
-    def CallProjectItemSelectedEvent(self, items:List[Item]):
+    def CallProjectItemSelectedEvent(self, isActive:bool, items:List[Item]):
         for func in self.projectItemSelectedEvents:
-            func(items)
+            func(isActive, items)
 
     def ChangeLoadedProject(self, key:str, info:Project):
         self.info = info
@@ -472,8 +486,16 @@ class IssueTypeCard(Frame):
         self.toggle.Subscribe(clickEvent)
 
 class ProjectItemCard(ParentItemCard):
-    def __init__(self, parent, jira, jiraItem, handler, width=300, height=110, *args, **kwargs):
+    def __init__(self, parent, jira, jiraItem, handler, width=500, height=110, *args, **kwargs):
         ParentItemCard.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
+
+        self._deadEndCountLabel = Label(self, text="Dead End Tasks:")
+        self._deadEndCountLabel.place(x=250, y=80, width=100)
+
+        self.deadEndVar = IntVar()
+        self.deadEndCountLabel = Label(self, textvariable=self.deadEndVar)
+        self.deadEndCountLabel.place(x=360, y=80)
+        self.deadEndCards:List[ChildItemCard] = []
 
         self.toggle = ToggleElement(self)
         self.toggle.AddControl(self)
@@ -485,34 +507,31 @@ class ProjectItemCard(ParentItemCard):
         self.toggle.AddControl(self._reporterLabel)
         self.toggle.AddControl(self.assigneeLabel)
         self.toggle.AddControl(self.reporterLabel)
+        self.toggle.AddControl(self._deadEndCountLabel)
+        self.toggle.AddControl(self.deadEndCountLabel)
 
         self.toggle.Subscribe(self.Handle_Toggle)
 
-        self.AddToRightClick()
         self.lastChildIssues:List[Item] = []
 
-        self.getChildrenEvents:List[Callable[[], List[Item]]] = []
+        self.GetChildrenEvents:List[Callable[[], Tuple[bool, List[Item]]]] = []
+        self.MenuClick_GetFamilyTree()
 
-    def SubscribeToGetChildrenEvent(self, func:Callable[[], List[Item]]):
-        self.getChildrenEvents.append(func)
+    def SubscribeToGetChildrenEvent(self, func:Callable[[], Tuple[bool, List[Item]]]):
+        self.GetChildrenEvents.append(func)
 
     def Handle_Toggle(self, frame:ProjectItemCard, isActive:bool):
         if isActive:
-            self.Handle_GetChildren()
+            deadEnds = self.item.GetAllDeadEndDecendents()
+            for func in self.GetChildrenEvents:
+                func(True, deadEnds)
         else:
-            pass
+            deadEnds = self.item.GetAllDeadEndDecendents()
+            for func in self.GetChildrenEvents:
+                func(False, deadEnds)
 
-
-    def AddToRightClick(self):
-        self.rightClickMenu.add_command(label="Get Children", command=self.Handle_GetChildren)
-
-    def Handle_GetChildren(self):
-        self.handler.AsyncWork(
-            JiraAgent.GetLinkIssues,
-            self.Callback_GetChildren,
-            self.jira,
-            self.item.key
-        )
+    def Callback_GetFamilyTree(self, item):
+        self.deadEndVar.set(item.DeadEndDecendentCount)
 
     def Callback_GetChildren(self, returnObject):
         if not returnObject[0]:
@@ -522,8 +541,8 @@ class ProjectItemCard(ParentItemCard):
         values = returnObject[1]["issues"]
         childIssues = [Item(issue) for issue in values if issue["key"] != self.item.key]
         self.lastChildIssues = childIssues
-        for func in self.getChildrenEvents:
-            func(childIssues)
+        for func in self.GetChildrenEvents:
+            func(True, childIssues)
         #CycleInspectorFrame.instance.AdoptChildren(childIssues)
 
 class CycleInspectorFrame(Frame):
@@ -615,7 +634,6 @@ class CycleInspectorFrame(Frame):
             childFrame:ChildItemCard
             childFrame.AddItemToTestCycle(epicItem)
         
-
     def CreateTestCycle(self):
         numberOfChildren = len(self.childItems)
 
@@ -655,6 +673,7 @@ class CycleInspectorFrame(Frame):
             temp = ChildItemCard(self.childIssueScrollFrame.packFrame, self.jira, item, self.handler)
             temp.pack(side="top", fill="x", **packKwargs)
 
+        self.childIssueScrollFrame.update_idletasks()
         self.childIssueScrollFrame.ConfigureCanvas()
 
 class ChildItemCard(ParentItemCard):

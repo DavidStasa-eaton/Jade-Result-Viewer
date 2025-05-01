@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu
+from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, IntVar, ttk, filedialog, Listbox, END, Scrollbar, Text, simpledialog, PhotoImage, Canvas, Image, Menu
 import json
 from typing import Dict, List, Tuple, Any, Callable
 import re
@@ -8,6 +8,11 @@ import datetime
 from queue import Queue
 import threading
 import time
+
+
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
 
 from TkinterSaver import RGB, packKwargs, gridKwargs, ScrollFrame, Button_ParseBool, Button_WorkStart, ToggleElement
 from JiraControls import CreateBugFrame
@@ -35,7 +40,6 @@ class CycleExplorerUI(Frame):
         self.cycleSelectFrame = Frame(self)
         self.cycleSelectFrame.pack(side="left", fill="y", **packKwargs)
 
-
         self.testCycleScrollFrame = ScrollFrame(self.cycleSelectFrame, width=1, bg="grey55", relief="sunken", bd=2)
         self.testCycleScrollFrame.packFrame.config(bg="grey55")
         self.testCycleScrollFrame.pack(side="top", fill="y", expand=True, **packKwargs)
@@ -57,8 +61,11 @@ class CycleExplorerUI(Frame):
         self.uploadAllButton = Button(self.itemsFoundFrame, text="Upload All Result File", command=self.Click_UploadAllResults)
         self.uploadAllButton.pack(side="bottom", fill="x", **packKwargs)
 
-        self.testButton = Button(self, text="Test Func", command=self.TestFunc)
-        self.testButton.pack(side="left")
+        #self.testButton = Button(self, text="Test Func", command=self.TestFunc)
+        #self.testButton.pack(side="left")
+
+        self.summaryFrame = SummaryFrame(self)
+        self.summaryFrame.pack(side="left", fill="both", expand=True, **packKwargs)
 
         self.allResultFiles:List[ResultFile] = []
 
@@ -107,12 +114,14 @@ class CycleExplorerUI(Frame):
         if self.selectedCycleCard is not None:
             temp = self.selectedCycleCard
             self.selectedCycleCard = None
+            self.itemsScrollFrame.ClearControls_Pack()
             temp.toggle.DeselectControl()
             
 
         if isSelected:
             self.selectedCycleCard = card
             self.Handle_GetChildrenOfSelectedCycle()
+            self.summaryFrame.UpdateSelectedCycle(card)
 
     def Handle_GetChildrenOfSelectedCycle(self):
         jqlString = f"parent = {self.selectedCycleCard.item.key} ORDER BY created DESC"
@@ -135,7 +144,19 @@ class CycleExplorerUI(Frame):
             itemFrame.pack(side="top", **packKwargs)
             
         self.itemsScrollFrame.ConfigureCanvas()
+        self.after(250, self.WaitForResultFileChecksToBeComplete)
     
+    def WaitForResultFileChecksToBeComplete(self):
+        allCycleItems = self.itemsScrollFrame.packFrame.winfo_children()
+        allCycleItems:List[TestingItemCard]
+        allFirstChecksCompleted = all(itemFrame.firstLook for itemFrame in allCycleItems)
+
+        if not allFirstChecksCompleted:
+            self.after(250, self.WaitForResultFileChecksToBeComplete)
+            return
+        
+        self.summaryFrame.UpdateSummary(allCycleItems)
+
     def TestFunc(self):
         self.Handle_GetTestCycles()
 
@@ -187,7 +208,6 @@ class CycleExplorerUI(Frame):
 
         return allFiles
 
-
 class CycleItemCard(ItemCard):
     def __init__(self, parent, jira, jiraItem, handler, parentToggleFunc:Callable[[Frame, bool],None], width=300, height=110, *args, **kwargs):
         ItemCard.__init__(self, parent, jira, jiraItem, handler, width, height, *args, **kwargs)
@@ -207,6 +227,7 @@ class TestingItemCard(ItemCard):
         self.GetResultFiles = GetResultFilesFunc
         self.clonedByItem:JiraItem = None
         self.foundResultFiles:List[ResultFile] = []
+        self.firstLook = False # will be set to True once a check is performed to find the result file. 
 
         self.DeplaceLabels(self._reporterLabel, self.reporterLabel)
 
@@ -217,7 +238,7 @@ class TestingItemCard(ItemCard):
         self.parentKeyLabel = Label(self, text="Waiting...", relief="ridge", bd=2)
         self.parentKeyLabel.place(x=223, y=6, width=120)
 
-        if not self.GetClonedByItem():
+        if not self.GetClonedByItem(): # will call self.LookForResultFile in callback.
             self.parentKeyLabel.config(text="Not Found")
 
         self.fileLabel = Label(self, text="Waiting...", relief="sunken", bd=2, justify="left", anchor="w", bg="grey75")
@@ -254,9 +275,9 @@ class TestingItemCard(ItemCard):
     def Failed(self, *args):
         self.statusCreatedImage = self.statusChangeCanvas.create_image(10,10, image=JiraItem.errorImage)
 
-
     def LookForResultFile(self):
         if not self.ValidClonedBy:
+            self.firstLook = True
             return
         
         allResultFiles = self.GetResultFiles()
@@ -275,16 +296,16 @@ class TestingItemCard(ItemCard):
             self.fileLabel.config(text=f"{self.foundResultFiles[0].pathFromInputDir} + {count-1} others")
 
         self.GetPfValue()
+        self.firstLook = True
 
     def GetPfValue(self):
         count = len(self.foundResultFiles)
         if count > 0:
             pfPercent = self.foundResultFiles[0].pfPercent
             bgColor = "lightgreen" if pfPercent == 100 else "lightsalmon"
-            self.pfLabel.config(text=pfPercent, bg=bgColor)
+            self.pfLabel.config(text=f"{pfPercent:.1f}", bg=bgColor)
         else:
             self.pfLabel.config(text="?", bg="orange")
-
 
     @property
     def ValidClonedBy(self) -> bool:
@@ -316,6 +337,68 @@ class TestingItemCard(ItemCard):
         self.parentKeyLabel.config(text=self.clonedByItem.key)
 
         self.LookForResultFile()
+
+class SummaryFrame(Frame):
+    def __init__(self, parent:Frame, *args, **kwargs):
+        Frame.__init__(self, parent, *args, **kwargs)
+
+        Label(self, text="Cycle Selected:").place(x=3, y=3)
+
+        self.cycleNameVar = StringVar()
+        self.cycleNameVar.set("-")
+        self.cycleNameLabel = Label(self, textvariable=self.cycleNameVar, relief="sunken", bd=2, bg="grey55")
+        self.cycleNameLabel.place(x=90, y=3, width=400)
+
+        Label(self, text="Items Found:").place(x=3, y=30)
+        self.itemsFoundVar = IntVar()
+        self.itemsFoundLabel = Label(self, textvariable=self.itemsFoundVar, relief="sunken", bd=2, bg="grey55")
+        self.itemsFoundLabel.place(x=90, y=30, width=30)
+
+        
+        self.fig = Figure(figsize=(5, 4), dpi=100)
+        self.ax = self.fig.add_subplot(111)
+        self.bars = self.ax.bar(["Pass", "Fail", "Unknown"], [0, 0, 0], color=["green", "red", "orange"])
+
+        self.ax.set_ylabel("Test Case Count")
+
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().place(x=3, y=200, width=450, height=250)
+
+    def UpdateSelectedCycle(self, cycleCard:CycleItemCard):
+        self.cycleNameVar.set(cycleCard.item.summary)
+
+    def UpdateSummary(self, testFrames:List[TestingItemCard]):
+        self.itemsFoundVar.set(len(testFrames))
+
+        passCount = 0
+        failCount = 0
+        unknownCount = 0
+
+        for cFrame in testFrames:
+            if cFrame.ValidClonedBy:
+                try:
+                    pf = cFrame.foundResultFiles[0].pfPercent
+                except IndexError:
+                    pf = -1
+                    unknownCount += 1
+                else:
+                    if pf == 100:
+                        passCount += 1
+                    else:
+                        failCount += 1
+            else:
+                unknownCount += 1
+
+        self.UpdateGraph([passCount, failCount, unknownCount])
+
+    def UpdateGraph(self, counts:Tuple[int, int, int]):
+        for bar, newCount in zip(self.bars, counts):
+            bar.set_height(newCount)
+        self.ax.relim()
+        self.ax.autoscale_view()
+        self.canvas.draw()
 
 def DummyGetResultDir() -> str:
     return r"C:\Users\E0498617\Documents\Local Scripts\Results"

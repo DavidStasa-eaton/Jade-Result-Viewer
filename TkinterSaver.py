@@ -621,6 +621,7 @@ class ScrollFrame(Frame):
         print(self)
         '''
         
+        self.update_idletasks()
 
         self.configCount += 1
         #print(self.configCount )

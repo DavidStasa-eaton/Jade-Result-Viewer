@@ -8,7 +8,7 @@ from tkinter import Tk, Toplevel, Frame, Button, Entry, Label, StringVar, ttk, f
 import enum
 
 if TYPE_CHECKING:
-    from RequirementsTracker import ResultViewerFrame
+    from ResultViewer import ResultViewerFrame
 
 class FileTypes(enum.Enum):
     Unknown = 0

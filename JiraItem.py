@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List, Tuple, Any, TYPE_CHECKING
+from typing import Dict, List, Tuple, Any, TYPE_CHECKING, Callable
 
 from tkinter import PhotoImage, Frame, Label, Button, Canvas, ttk, Menu
 from TkinterSaver import packKwargs, gridKwargs, ToggleButton, ToggleElement
@@ -8,7 +8,7 @@ from AsyncHandler import AsyncHandler
 import JiraAgent
 
 if TYPE_CHECKING:
-    from RequirementsTracker import JadeTableResult
+    from ResultViewer import JadeTableResult
     from atlassian import Jira
 
 class JiraItem:
@@ -19,12 +19,15 @@ class JiraItem:
     testCaseImage = None
     requirementImage = None
     unknownImage = None
+    initiativesImage = None
 
     errorImage = None
     successImage = None
 
     def __init__(self, issueDict:Dict[str, Any]):
         self.issueDict = issueDict
+        self.ChildFoundEvent:List[Callable[[], JiraItem]] = []
+        self.FamilyTreeChangedEvent:List[Callable[[], JiraItem]] = []
 
         self.key = issueDict["key"]
         self.id = issueDict["id"]
@@ -43,11 +46,104 @@ class JiraItem:
         self.assignee = self.fields["assignee"]
         self.assignee = "No One" if self.assignee is None else self.assignee["displayName"]
 
+        self.children:List[JiraItem] = []
+
+    @property
+    def ChildrenCount(self) -> int:
+        return len(self.children)
+    
+    @property
+    def FamilyCount(self) -> int:
+        count = len(self.children)
+
+        for child in self.children:
+            count += child.FamilyCount
+
+        return count
+    
+    @property
+    def DeadEndDecendentCount(self) -> int:
+        count = 0
+
+        for child in self.children:
+            if child.ChildrenCount == 0:
+                count += 1
+            else:
+                count += child.DeadEndDecendentCount
+
+        return count
+    
+    def GetAllDeadEndDecendents(self) -> List[JiraItem]:
+        deadEnds = []
+
+        for child in self.children:
+            if child.ChildrenCount == 0:
+                deadEnds.append(child)
+            else:
+                deadEnds.extend(child.GetAllDeadEndDecendents())
+
+        return deadEnds
+
+        
+
     def GetParentInfo(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "key": self.key
         }
+
+    def GetFamilyTree(self, jira:Jira, handler:AsyncHandler):
+        [success, infoPacket] = JiraAgent.GetJQL(jira, f"parent = {self.key} ORDER BY created DESC")
+
+        if not success:
+            return [success, None]
+        
+        self.children = []
+        index = 0
+        for childInfo in infoPacket["issues"]:
+            self.children.append(JiraItem(childInfo))
+            self.children[index].GetFamilyTree(jira, handler)
+            index += 1
+
+        return [success, self]
+
+        
+
+    def Async_GetFamilyTree(self, jira:Jira, handler:AsyncHandler):
+        handler.AsyncWork(
+            self.GetFamilyTree,
+            self.Callback_GetFamilyTree,
+            jira,
+            handler
+        )
+
+
+    def Callback_GetFamilyTree(self, returnObject):
+        if not returnObject[0]:
+            return
+        
+        for func in self.FamilyTreeChangedEvent:
+            func(self)
+
+    def GetChildren(self, jira:Jira, handler:AsyncHandler):
+        handler.AsyncWork(
+            JiraAgent.GetJQL,
+            self.Callback_GetChildren,
+            jira,
+            f"parent = {self.key} ORDER BY created DESC"
+        )
+
+    def Callback_GetChildren(self, returnObject):
+        if not returnObject[0]:
+            return
+        
+        self.children = []
+        for childInfo in returnObject[1]["issues"]:
+            self.children.append(JiraItem(childInfo))
+
+        for func in self.ChildFoundEvent:
+            func(self)
+
 
 class ItemCard(Frame):
     def __init__(self, parent:Frame, jira:Jira, jiraItem:JiraItem, handler:AsyncHandler, width=300, height=110, *args, **kwargs):
@@ -56,6 +152,9 @@ class ItemCard(Frame):
         self.jira = jira
         self.item = jiraItem
         self.handler = handler
+
+        self.item.ChildFoundEvent.append(self.Callback_GetChildren)
+        self.item.FamilyTreeChangedEvent.append(self.Callback_GetFamilyTree)
 
         self.config(width=width, height=height)
 
@@ -95,11 +194,19 @@ class ItemCard(Frame):
         self.bind("<Button-3>", self.Handle_RightClick)
         self.CreateRightClickMenu()
 
+    def GetChildren(self):
+        self.item.GetChildren(self.jira, self.handler)
+
+    def Callback_GetChildren(self, item:JiraItem):
+        print(item)
+
+    def Callback_GetFamilyTree(self, item:JiraItem):
+        pass
+
     def DeplaceLabels(self, *args:List[Label]):
         for label in args:
             label:Label
             label.place_forget()
-
 
     def Handle_RightClick(self, event):
         try:
@@ -111,6 +218,8 @@ class ItemCard(Frame):
         self.rightClickMenu = Menu(self, tearoff=0)
 
         self.rightClickMenu.add_command(label="Save Info", command=self.MenuClick_SaveInfo)
+        self.rightClickMenu.add_command(label="Get Children2", command=self.MenuClick_GetChildren)
+        self.rightClickMenu.add_command(label="Get Family Tree", command=self.MenuClick_GetFamilyTree)
         #self.rightClickMenu.add_command(label="LinkIssue", command=self.MenuClick_LinkIssue)
 
     def MenuClick_SaveInfo(self, event=None):
@@ -121,6 +230,12 @@ class ItemCard(Frame):
             self.item.key,
             False
         )
+
+    def MenuClick_GetChildren(self, event=None):
+        self.GetChildren()
+
+    def MenuClick_GetFamilyTree(self, event=None):
+        self.item.Async_GetFamilyTree(self.jira, self.handler)
 
 class JiraType:
     @staticmethod
@@ -137,6 +252,8 @@ class JiraType:
             return JiraItem.testCaseImage
         elif issueType == "Requirement":
             return JiraItem.requirementImage
+        elif issueType == "Initiatives":
+            return JiraItem.initiativesImage
         else:
             return JiraItem.unknownImage
 
@@ -151,6 +268,7 @@ class JiraType:
         JiraItem.storyImage = PhotoImage(file=r"Resources\story.png")
         JiraItem.testCaseImage = PhotoImage(file=r"Resources\testcase.png")
         JiraItem.requirementImage = PhotoImage(file=r"Resources\requirement.png")
+        JiraItem.initiativesImage = PhotoImage(file=r"Resources\Initiatives.png")
         JiraItem.unknownImage = PhotoImage(file=r"Resources\unknown.png")
 
         JiraItem.errorImage = PhotoImage(file=r"Resources\error.png")

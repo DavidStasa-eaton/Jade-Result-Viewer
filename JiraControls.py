@@ -17,7 +17,7 @@ from AsyncHandler import AsyncHandler
 import JiraAgent as JiraAgent
 
 if TYPE_CHECKING:
-    from RequirementsTracker import JadeTableResult
+    from ResultViewer import JadeTableResult
     from atlassian import Jira
 
 configPath = "JadeResultParserConfig.txt"
